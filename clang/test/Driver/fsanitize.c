@@ -654,6 +654,11 @@
 // CHECK-CFI-GENERALIZE-POINTERS: -fsanitize-cfi-icall-generalize-pointers
 // CHECK-NO-CFI-GENERALIZE-POINTERS-NOT: -fsanitize-cfi-icall-generalize-pointers
 
+// RUN: %clang -target x86_64-linux-gnu -fsanitize=cfi-icall -fsanitize-cfi-promotion-aliases -fvisibility=hidden -flto=thin -c %s -### 2>&1 | FileCheck %s --check-prefix=CHECK-CFI-PROMOTION-ALIASES
+// RUN: %clang -target x86_64-linux-gnu -fsanitize=cfi-icall -fvisibility=hidden -flto=thin -c %s -### 2>&1 | FileCheck %s --check-prefix=CHECK-NO-CFI-PROMOTION-ALIASES
+// CHECK-CFI-PROMOTION-ALIASES: -fsanitize-cfi-promotion-aliases
+// CHECK-NO-CFI-PROMOTION-ALIASES-NOT: -fsanitize-cfi-promotion-aliases
+
 // RUN: %clang -target x86_64-linux-gnu -fsanitize=cfi-icall -fsanitize-cfi-icall-generalize-pointers -fsanitize-cfi-cross-dso -fvisibility=hidden -flto -c %s -### 2>&1 | FileCheck %s --check-prefix=CHECK-CFI-GENERALIZE-AND-CROSS-DSO
 // CHECK-CFI-GENERALIZE-AND-CROSS-DSO: error: invalid argument '-fsanitize-cfi-cross-dso' not allowed with '-fsanitize-cfi-icall-generalize-pointers'
 

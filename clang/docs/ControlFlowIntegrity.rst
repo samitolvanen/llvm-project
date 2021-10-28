@@ -285,6 +285,15 @@ is taken by assembly code and then called by CFI-checking C code. The
 the jump table entry of a specific function canonical so that the external
 code will end up taking an address for the function that will pass CFI checks.
 
+``-fsanitize-cfi-promotion-aliases``
+--------------------------------------------
+
+With ``-flto=thin`` and CFI, static functions are renamed when they are promoted
+to global visibility, which breaks references to them from inline assembly. With
+``-fsanitize-cfi-promotion-aliases`` the compiler creates local aliases with the
+original name to allow static functions to be referenced from inline assembly.
+
+
 ``-fsanitize=cfi-icall`` and ``-fsanitize=function``
 ----------------------------------------------------
 

@@ -694,6 +694,9 @@ void CodeGenModule::Release() {
     getModule().addModuleFlag(llvm::Module::Override,
                               "CFI Canonical Jump Tables",
                               CodeGenOpts.SanitizeCfiCanonicalJumpTables);
+    getModule().addModuleFlag(llvm::Module::Override,
+                              "CFI Promotion Aliases",
+                              CodeGenOpts.SanitizeCfiPromotionAliases);
   }
 
   if (CodeGenOpts.CFProtectionReturn &&

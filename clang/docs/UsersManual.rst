@@ -1730,6 +1730,12 @@ are listed below.
    checked by Control Flow Integrity indirect call checking. See
    :doc:`ControlFlowIntegrity` for more details.
 
+.. option:: -fsanitize-cfi-promotion-aliases
+
+   Create aliases with the original name for local functions that are renamed
+   when they are promoted to global visibility, so they can be referenced from
+   inline assembly.
+
 .. option:: -fstrict-vtable-pointers
 
    Enable optimizations based on the strict rules for overwriting polymorphic

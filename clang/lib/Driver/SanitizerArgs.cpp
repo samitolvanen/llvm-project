@@ -674,6 +674,9 @@ SanitizerArgs::SanitizerArgs(const ToolChain &TC,
     CfiCanonicalJumpTables =
         Args.hasFlag(options::OPT_fsanitize_cfi_canonical_jump_tables,
                      options::OPT_fno_sanitize_cfi_canonical_jump_tables, true);
+
+    CfiPromotionAliases =
+        Args.hasArg(options::OPT_fsanitize_cfi_promotion_aliases);
   }
 
   Stats = Args.hasFlag(options::OPT_fsanitize_stats,
@@ -1122,6 +1125,9 @@ void SanitizerArgs::addArgs(const ToolChain &TC, const llvm::opt::ArgList &Args,
 
   if (CfiICallGeneralizePointers)
     CmdArgs.push_back("-fsanitize-cfi-icall-generalize-pointers");
+
+  if (CfiPromotionAliases)
+    CmdArgs.push_back("-fsanitize-cfi-promotion-aliases");
 
   if (CfiCanonicalJumpTables)
     CmdArgs.push_back("-fsanitize-cfi-canonical-jump-tables");

@@ -19,4 +19,7 @@ define internal void @a() !type !0 {
   ret void
 }
 
+!llvm.module.flags = !{!1}
+
 !0 = !{i64 0, !"typeid1"}
+!1 = !{i32 4, !"CFI Promotion Aliases", i32 1}

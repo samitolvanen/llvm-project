@@ -33,6 +33,13 @@ using namespace llvm;
 
 namespace {
 
+// Determine if promotion aliases should be created for a module.
+static bool createPromotionAliases(Module &M) {
+  auto *CI = mdconst::extract_or_null<ConstantInt>(
+      M.getModuleFlag("CFI Promotion Aliases"));
+  return (CI && CI->getZExtValue() != 0);
+}
+
 // Determine if a promotion alias should be created for a symbol name.
 static bool allowPromotionAlias(const std::string &Name) {
   // Promotion aliases are used only in inline assembly. It's safe to
@@ -51,6 +58,8 @@ static bool allowPromotionAlias(const std::string &Name) {
 void promoteInternals(Module &ExportM, Module &ImportM, StringRef ModuleId,
                       SetVector<GlobalValue *> &PromoteExtra) {
   DenseMap<const Comdat *, Comdat *> RenamedComdats;
+  bool CreateAliases = createPromotionAliases(ExportM);
+
   for (auto &ExportGV : ExportM.global_values()) {
     if (!ExportGV.hasLocalLinkage())
       continue;
@@ -84,7 +93,8 @@ void promoteInternals(Module &ExportM, Module &ImportM, StringRef ModuleId,
       ImportGV->setVisibility(GlobalValue::HiddenVisibility);
     }
 
-    if (isa<Function>(&ExportGV) && allowPromotionAlias(OldName)) {
+    if (CreateAliases && isa<Function>(&ExportGV) &&
+        allowPromotionAlias(OldName)) {
       // Create a local alias with the original name to avoid breaking
       // references from inline assembly.
       std::string Alias =

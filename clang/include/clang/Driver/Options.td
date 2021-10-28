@@ -1717,6 +1717,10 @@ def fsanitize_cfi_icall_generalize_pointers : Flag<["-"], "fsanitize-cfi-icall-g
                                               Group<f_clang_Group>,
                                               HelpText<"Generalize pointers in CFI indirect call type signature checks">,
                                               MarshallingInfoFlag<CodeGenOpts<"SanitizeCfiICallGeneralizePointers">>;
+def fsanitize_cfi_promotion_aliases : Flag<["-"], "fsanitize-cfi-promotion-aliases">,
+                                      Group<f_clang_Group>,
+                                      HelpText<"Generate aliases for promoted static functions for inline assembly">,
+                                      MarshallingInfoFlag<CodeGenOpts<"SanitizeCfiPromotionAliases">>;
 defm sanitize_cfi_canonical_jump_tables : BoolOption<"f", "sanitize-cfi-canonical-jump-tables",
   CodeGenOpts<"SanitizeCfiCanonicalJumpTables">, DefaultFalse,
   PosFlag<SetTrue, [], "Make">, NegFlag<SetFalse, [CoreOption, NoXarchOption], "Do not make">,

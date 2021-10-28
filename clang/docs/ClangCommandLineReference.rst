@@ -929,6 +929,10 @@ Enable control flow integrity (CFI) checks for cross-DSO calls.
 
 Generalize pointers in CFI indirect call type signature checks
 
+.. option:: -fsanitize-cfi-promotion-aliases
+
+Create aliases for promoted static functions to allow them to be referenced from inline assembly
+
 .. option:: -fsanitize-coverage-allowlist=<arg>, -fsanitize-coverage-whitelist=<arg>
 
 Restrict sanitizer coverage instrumentation exclusively to modules and functions that match the provided special case list, except the blocked ones
