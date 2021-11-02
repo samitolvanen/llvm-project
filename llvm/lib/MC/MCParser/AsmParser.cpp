@@ -534,6 +534,7 @@ private:
     DK_ADDRSIG_SYM,
     DK_PSEUDO_PROBE,
     DK_LTO_DISCARD,
+    DK_SET_UNUSED,
     DK_END
   };
 
@@ -703,6 +704,9 @@ private:
 
   // ".lto_discard"
   bool parseDirectiveLTODiscard();
+
+  // ".set_unused"
+  bool parseDirectiveSetUnused();
 
   // Directives to support address-significance tables.
   bool parseDirectiveAddrsig();
@@ -2289,6 +2293,8 @@ bool AsmParser::parseStatement(ParseStatementInfo &Info,
       return parseDirectivePseudoProbe();
     case DK_LTO_DISCARD:
       return parseDirectiveLTODiscard();
+    case DK_SET_UNUSED:
+      return parseDirectiveSetUnused();
     }
 
     return Error(IDLoc, "unknown directive");
@@ -5581,6 +5587,7 @@ void AsmParser::initializeDirectiveKindMap() {
   DirectiveKindMap[".addrsig_sym"] = DK_ADDRSIG_SYM;
   DirectiveKindMap[".pseudoprobe"] = DK_PSEUDO_PROBE;
   DirectiveKindMap[".lto_discard"] = DK_LTO_DISCARD;
+  DirectiveKindMap[".set_unused"] = DK_SET_UNUSED;
 }
 
 MCAsmMacro *AsmParser::parseMacroLikeBody(SMLoc DirectiveLoc) {
@@ -5909,6 +5916,24 @@ bool AsmParser::parseDirectiveLTODiscard() {
 
   LTODiscardSymbols.clear();
   return parseMany(ParseOp);
+}
+
+/// parseDirectiveSetUnused
+///  ::= ".set_unused" identifier
+/// Marks the symbol unused, which allows it to be dropped from symbol
+/// tables. ThinLTOBitcodeWriter uses this directive to mark promotion
+/// aliases unused, so they the aliasees can be dropped when otherwise
+/// unused.
+bool AsmParser::parseDirectiveSetUnused() {
+  StringRef Name;
+  SMLoc Loc = getTok().getLoc();
+  if (parseIdentifier(Name))
+    return Error(Loc, "expected identifier");
+  MCSymbol *Sym = getContext().lookupSymbol(Name);
+  if (!Sym)
+    return Error(Loc, "expected a symbol");
+  Out.emitUnused(Sym);
+  return true;
 }
 
 // We are comparing pointers, but the pointers are relative to a single string.

@@ -524,6 +524,10 @@ public:
   /// \param Value - The value for the symbol.
   virtual void emitAssignment(MCSymbol *Symbol, const MCExpr *Value);
 
+  /// Marks the \p Symbol unused to allow it to be omitted from symbol tables
+  /// unless other references exist.
+  virtual void emitUnused(const MCSymbol *Symbol);
+
   /// Emit an weak reference from \p Alias to \p Symbol.
   ///
   /// This corresponds to an assembler statement such as:

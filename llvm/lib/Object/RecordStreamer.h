@@ -23,8 +23,16 @@ class Module;
 
 class RecordStreamer : public MCStreamer {
 public:
-  enum State { NeverSeen, Global, Defined, DefinedGlobal, DefinedWeak, Used,
-               UndefinedWeak};
+  enum State {
+    NeverSeen,
+    Global,
+    Defined,
+    DefinedGlobal,
+    DefinedWeak,
+    Used,
+    Unused,
+    UndefinedWeak
+  };
 
 private:
   const Module &M;
@@ -40,11 +48,13 @@ private:
   void markDefined(const MCSymbol &Symbol);
   void markGlobal(const MCSymbol &Symbol, MCSymbolAttr Attribute);
   void markUsed(const MCSymbol &Symbol);
+  void markUnused(const MCSymbol &Symbol);
   void visitUsedSymbol(const MCSymbol &Sym) override;
 
 public:
   RecordStreamer(MCContext &Context, const Module &M);
 
+  void emitUnused(const MCSymbol *Symbol) override;
   void emitInstruction(const MCInst &Inst, const MCSubtargetInfo &STI) override;
   void emitLabel(MCSymbol *Symbol, SMLoc Loc = SMLoc()) override;
   void emitAssignment(MCSymbol *Symbol, const MCExpr *Value) override;

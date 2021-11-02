@@ -87,7 +87,8 @@ void promoteInternals(Module &ExportM, Module &ImportM, StringRef ModuleId,
     if (isa<Function>(&ExportGV) && allowPromotionAlias(OldName)) {
       // Create a local alias with the original name to avoid breaking
       // references from inline assembly.
-      std::string Alias = ".set " + OldName + "," + NewName + "\n";
+      std::string Alias = ".set " + OldName + "," + NewName + "\n" +
+                          ".set_unused " + NewName + "\n";
       ExportM.appendModuleInlineAsm(Alias);
     }
   }

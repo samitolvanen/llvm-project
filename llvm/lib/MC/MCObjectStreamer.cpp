@@ -355,6 +355,11 @@ void MCObjectStreamer::emitAssignment(MCSymbol *Symbol, const MCExpr *Value) {
   MCStreamer::emitAssignment(Symbol, Value);
 }
 
+void MCObjectStreamer::emitUnused(const MCSymbol *Symbol) {
+  getAssembler().unregisterSymbol(*Symbol);
+  MCStreamer::emitUnused(Symbol);
+}
+
 bool MCObjectStreamer::mayHaveInstructions(MCSection &Sec) const {
   return Sec.hasInstructions();
 }

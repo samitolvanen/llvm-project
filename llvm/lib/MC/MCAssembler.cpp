@@ -473,6 +473,16 @@ void MCAssembler::registerSymbol(const MCSymbol &Symbol, bool *Created) {
   }
 }
 
+void MCAssembler::unregisterSymbol(const MCSymbol &Symbol) {
+  if (!Symbol.isRegistered())
+    return;
+  auto I = std::find(Symbols.begin(), Symbols.end(), &Symbol);
+  if (I == Symbols.end())
+    return;
+  Symbols.erase(I);
+  Symbol.setIsRegistered(false);
+}
+
 void MCAssembler::writeFragmentPadding(raw_ostream &OS,
                                        const MCEncodedFragment &EF,
                                        uint64_t FSize) const {

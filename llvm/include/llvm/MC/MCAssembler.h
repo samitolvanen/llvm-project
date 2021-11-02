@@ -463,6 +463,8 @@ public:
 
   void registerSymbol(const MCSymbol &Symbol, bool *Created = nullptr);
 
+  void unregisterSymbol(const MCSymbol &Symbol);
+
   MutableArrayRef<std::pair<std::string, size_t>> getFileNames() {
     return FileNames;
   }

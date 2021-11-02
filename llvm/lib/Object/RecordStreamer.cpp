@@ -24,6 +24,7 @@ void RecordStreamer::markDefined(const MCSymbol &Symbol) {
   case NeverSeen:
   case Defined:
   case Used:
+  case Unused:
     S = Defined;
     break;
   case DefinedWeak:
@@ -45,6 +46,7 @@ void RecordStreamer::markGlobal(const MCSymbol &Symbol,
   case NeverSeen:
   case Global:
   case Used:
+  case Unused:
     S = (Attribute == MCSA_Weak) ? UndefinedWeak : Global;
     break;
   case UndefinedWeak:
@@ -65,12 +67,32 @@ void RecordStreamer::markUsed(const MCSymbol &Symbol) {
 
   case NeverSeen:
   case Used:
+  case Unused:
     S = Used;
     break;
   }
 }
 
+void RecordStreamer::markUnused(const MCSymbol &Symbol) {
+  State &S = Symbols[Symbol.getName()];
+  switch (S) {
+  case DefinedGlobal:
+  case Defined:
+  case Global:
+  case DefinedWeak:
+  case UndefinedWeak:
+  case NeverSeen:
+    break;
+  case Used:
+  case Unused:
+    S = Unused;
+    break;
+  }
+}
+
 void RecordStreamer::visitUsedSymbol(const MCSymbol &Sym) { markUsed(Sym); }
+
+void RecordStreamer::emitUnused(const MCSymbol *Symbol) { markUnused(*Symbol); }
 
 RecordStreamer::RecordStreamer(MCContext &Context, const Module &M)
     : MCStreamer(Context), M(M) {}
@@ -181,6 +203,7 @@ void RecordStreamer::flushSymverDirectives() {
     case RecordStreamer::NeverSeen:
     case RecordStreamer::Global:
     case RecordStreamer::Used:
+    case RecordStreamer::Unused:
     case RecordStreamer::UndefinedWeak:
       break;
     }

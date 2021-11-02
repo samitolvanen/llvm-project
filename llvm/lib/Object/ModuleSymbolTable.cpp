@@ -64,6 +64,9 @@ void ModuleSymbolTable::addModule(Module *M) {
     SymTab.push_back(&GV);
 
   CollectAsmSymbols(*M, [this](StringRef Name, BasicSymbolRef::Flags Flags) {
+    if (Flags & BasicSymbolRef::SF_Unused)
+      return;
+
     SymTab.push_back(new (AsmSymbols.Allocate())
                          AsmSymbol(std::string(Name), Flags));
   });
@@ -153,6 +156,11 @@ void ModuleSymbolTable::CollectAsmSymbols(
       case RecordStreamer::Used:
         Res |= BasicSymbolRef::SF_Undefined;
         Res |= BasicSymbolRef::SF_Global;
+        break;
+      case RecordStreamer::Unused:
+        Res |= BasicSymbolRef::SF_Undefined;
+        Res |= BasicSymbolRef::SF_Global;
+        Res |= BasicSymbolRef::SF_Unused;
         break;
       case RecordStreamer::DefinedWeak:
         Res |= BasicSymbolRef::SF_Weak;

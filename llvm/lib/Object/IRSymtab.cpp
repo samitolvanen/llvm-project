@@ -214,6 +214,14 @@ Expected<int> Builder::getComdatIndex(const Comdat *C, const Module *M) {
 Error Builder::addSymbol(const ModuleSymbolTable &Msymtab,
                          const SmallPtrSet<GlobalValue *, 4> &Used,
                          ModuleSymbolTable::Symbol Msym) {
+
+  auto Flags = Msymtab.getSymbolFlags(Msym);
+  auto *GV = Msym.dyn_cast<GlobalValue *>();
+
+  // Skip unused inline assembly symbols
+  if (!GV && Flags & object::BasicSymbolRef::SF_Unused)
+    return Error::success();
+
   Syms.emplace_back();
   storage::Symbol &Sym = Syms.back();
   Sym = {};
@@ -238,7 +246,6 @@ Error Builder::addSymbol(const ModuleSymbolTable &Msymtab,
   }
   setStr(Sym.Name, Saver.save(Name.str()));
 
-  auto Flags = Msymtab.getSymbolFlags(Msym);
   if (Flags & object::BasicSymbolRef::SF_Undefined)
     Sym.Flags |= 1 << storage::Symbol::FB_undefined;
   if (Flags & object::BasicSymbolRef::SF_Weak)
@@ -255,7 +262,7 @@ Error Builder::addSymbol(const ModuleSymbolTable &Msymtab,
     Sym.Flags |= 1 << storage::Symbol::FB_executable;
 
   Sym.ComdatIndex = -1;
-  auto *GV = Msym.dyn_cast<GlobalValue *>();
+
   if (!GV) {
     // Undefined module asm symbols act as GC roots and are implicitly used.
     if (Flags & object::BasicSymbolRef::SF_Undefined)

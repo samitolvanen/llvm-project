@@ -1048,6 +1048,8 @@ void MCStreamer::emitAssignment(MCSymbol *Symbol, const MCExpr *Value) {
     TS->emitAssignment(Symbol, Value);
 }
 
+void MCStreamer::emitUnused(const MCSymbol *Symbol) {}
+
 void MCTargetStreamer::prettyPrintAsm(MCInstPrinter &InstPrinter,
                                       uint64_t Address, const MCInst &Inst,
                                       const MCSubtargetInfo &STI,
