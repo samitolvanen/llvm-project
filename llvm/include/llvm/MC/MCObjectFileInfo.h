@@ -14,8 +14,10 @@
 #define LLVM_MC_MCOBJECTFILEINFO_H
 
 #include "llvm/ADT/Optional.h"
+#include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Triple.h"
 #include "llvm/BinaryFormat/Swift.h"
+#include "llvm/MC/MCSection.h"
 #include "llvm/Support/VersionTuple.h"
 
 #include <array>
@@ -354,6 +356,8 @@ public:
   MCSection *getStackSizesSection(const MCSection &TextSec) const;
 
   MCSection *getBBAddrMapSection(const MCSection &TextSec) const;
+
+  MCSection *getKCFISection(const MCSection &TextSec, StringRef Name) const;
 
   MCSection *getPseudoProbeSection(const MCSection *TextSec) const;
 

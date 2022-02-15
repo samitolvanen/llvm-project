@@ -111,6 +111,7 @@ public:
 
   typedef std::tuple<unsigned, bool, uint32_t> HwasanMemaccessTuple;
   std::map<HwasanMemaccessTuple, MCSymbol *> HwasanMemaccessSymbols;
+  void LowerKCFI_CHECK(const MachineInstr &MI);
   void LowerHWASAN_CHECK_MEMACCESS(const MachineInstr &MI);
   void emitHwasanMemaccessSymbols(Module &M);
 
@@ -315,6 +316,46 @@ void AArch64AsmPrinter::emitSled(const MachineInstr &MI, SledKind Kind) {
 
   OutStreamer->emitLabel(Target);
   recordSled(CurSled, MI, Kind, 2);
+}
+
+void AArch64AsmPrinter::LowerKCFI_CHECK(const MachineInstr &MI) {
+  const MachineFunction &MF = *MI.getMF();
+
+  EmitToStreamer(*OutStreamer, MCInstBuilder(AArch64::LDURWi)
+                                   .addReg(AArch64::W16)
+                                   .addReg(MI.getOperand(0).getReg())
+                                   .addImm(-4));
+
+  int64_t Type = MI.getOperand(1).getImm();
+  EmitToStreamer(*OutStreamer, MCInstBuilder(AArch64::MOVKWi)
+                                   .addReg(AArch64::W17)
+                                   .addReg(AArch64::W17)
+                                   .addImm(Type & 0xFFFF)
+                                   .addImm(0));
+  EmitToStreamer(*OutStreamer, MCInstBuilder(AArch64::MOVKWi)
+                                   .addReg(AArch64::W17)
+                                   .addReg(AArch64::W17)
+                                   .addImm((Type >> 16) & 0xFFFF)
+                                   .addImm(16));
+
+  EmitToStreamer(*OutStreamer, MCInstBuilder(AArch64::SUBSWrs)
+                                   .addReg(AArch64::WZR)
+                                   .addReg(AArch64::W16)
+                                   .addReg(AArch64::W17)
+                                   .addImm(0));
+
+  MCSymbol *Pass = OutContext.createTempSymbol();
+  EmitToStreamer(*OutStreamer,
+                 MCInstBuilder(AArch64::Bcc)
+                     .addImm(AArch64CC::EQ)
+                     .addExpr(MCSymbolRefExpr::create(Pass, OutContext)));
+
+  MCSymbol *Trap = OutContext.createTempSymbol();
+  OutStreamer->emitLabel(Trap);
+  EmitToStreamer(*OutStreamer, MCInstBuilder(AArch64::BRK).addImm(0x801));
+  emitKCFITrapEntry(MF, Trap);
+
+  OutStreamer->emitLabel(Pass);
 }
 
 void AArch64AsmPrinter::LowerHWASAN_CHECK_MEMACCESS(const MachineInstr &MI) {
@@ -1431,6 +1472,10 @@ void AArch64AsmPrinter::emitInstruction(const MachineInstr *MI) {
 
   case TargetOpcode::PATCHABLE_TAIL_CALL:
     LowerPATCHABLE_TAIL_CALL(*MI);
+    return;
+
+  case AArch64::KCFI_CHECK:
+    LowerKCFI_CHECK(*MI);
     return;
 
   case AArch64::HWASAN_CHECK_MEMACCESS:

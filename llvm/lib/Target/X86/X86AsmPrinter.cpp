@@ -108,6 +108,12 @@ void X86AsmPrinter::emitFunctionBodyEnd() {
   }
 }
 
+void X86AsmPrinter::emitKCFITypeId(const MachineFunction &MF) {
+  AsmPrinter::emitKCFITypeId(MF);
+  // Emit two extra bytes to avoid gadgets in llvm.kcfi.check().
+  OutStreamer->emitFill(2, 0xCC);
+}
+
 /// PrintSymbolOperand - Print a raw symbol reference operand.  This handles
 /// jump tables, constant pools, global address and external symbols, all of
 /// which print to a label with various suffixes for relocation types etc.
