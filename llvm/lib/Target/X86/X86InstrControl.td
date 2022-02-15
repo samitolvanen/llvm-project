@@ -417,6 +417,37 @@ let isPseudo = 1, isCall = 1, isCodeGenOnly = 1,
 
 let isPseudo = 1, isCall = 1, isCodeGenOnly = 1,
     Uses = [RSP, SSP],
+    usesCustomInserter = 1,
+    SchedRW = [WriteJump] in {
+  def KCFI_CALL64r :
+    PseudoI<(outs), (ins i32imm:$type, GR64:$dst), [(X86call_kcfi timm:$type, GR64:$dst)]>,
+            Requires<[In64BitMode,NotUseIndirectThunkCalls]>;
+  def KCFI_CALL64r_NT :
+    PseudoI<(outs), (ins i32imm:$type, GR64:$dst), [(X86NoTrackCall_kcfi timm:$type, GR64:$dst)]>,
+            Requires<[In64BitMode]>, NOTRACK;
+
+  // For indirect thunk calls with KCFI
+  def KCFI_INDIRECT_THUNK_CALL64 :
+    PseudoI<(outs), (ins i32imm:$type, GR64:$dst), [(X86call_kcfi timm:$type, GR64:$dst)]>,
+            Requires<[In64BitMode,UseIndirectThunkCalls]>;
+  def KCFI_CALL64pcrel32 :
+    PseudoI<(outs), (ins i32imm:$type, i64imm:$rvfunc, i64i32imm_brtarget:$dst), []>,
+            Requires<[In64BitMode]>;
+
+  let isTerminator = 1, isReturn = 1, isBarrier = 1 in {
+    def KCFI_TCRETURNri64 :
+      PseudoI<(outs), (ins i32imm:$type, ptr_rc_tailcall:$dst, i32imm:$offset),[]>, NotMemoryFoldable;
+
+    // For indirect thunk tail calls with KCFI checks.
+    def KCFI_INDIRECT_THUNK_TCRETURN64 :
+      PseudoI<(outs), (ins i32imm:$type, GR64:$dst, i32imm:$offset), []>;
+    def KCFI_TCRETURNdi64 :
+      PseudoI<(outs), (ins i32imm:$type, i64i32imm_brtarget:$dst, i32imm:$offset),[]>;
+  }
+}
+
+let isPseudo = 1, isCall = 1, isCodeGenOnly = 1,
+    Uses = [RSP, SSP],
     SchedRW = [WriteJump] in {
   def CALL64m_RVMARKER :
      PseudoI<(outs), (ins i64imm:$rvfunc, i64mem:$dst), [(X86call_rvmarker tglobaladdr:$rvfunc, (loadi64 addr:$dst))]>,

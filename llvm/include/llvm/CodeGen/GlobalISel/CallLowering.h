@@ -144,6 +144,9 @@ public:
 
     /// The stack index for sret demotion.
     int DemoteStackIndex;
+
+    /// Expected type identifier for indirect calls with a KCFI check.
+    const ConstantInt *KCFIType = nullptr;
   };
 
   /// Argument handling is mostly uniform between the four places that

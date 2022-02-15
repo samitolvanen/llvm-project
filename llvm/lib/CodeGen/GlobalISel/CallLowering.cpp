@@ -155,6 +155,12 @@ bool CallLowering::lowerCall(MachineIRBuilder &MIRBuilder, const CallBase &CB,
     }
   }
 
+  auto Bundle = CB.getOperandBundle(LLVMContext::OB_kcfi);
+  if (Bundle && CB.isIndirectCall()) {
+    Info.KCFIType = cast<ConstantInt>(Bundle->Inputs[0]);
+    assert(Info.KCFIType->getType()->isIntegerTy(32) && "Invalid KCFI type");
+  }
+
   Info.CB = &CB;
   Info.KnownCallees = CB.getMetadata(LLVMContext::MD_callees);
   Info.CallConv = CallConv;

@@ -47,6 +47,7 @@
 #include "clang/CodeGen/BackendUtil.h"
 #include "clang/CodeGen/ConstantInitBuilder.h"
 #include "clang/Frontend/FrontendDiagnostic.h"
+#include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/ADT/Triple.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
@@ -65,6 +66,7 @@
 #include "llvm/Support/MD5.h"
 #include "llvm/Support/TimeProfiler.h"
 #include "llvm/Support/X86TargetParser.h"
+#include "llvm/Support/xxhash.h"
 
 using namespace clang;
 using namespace CodeGen;
@@ -553,6 +555,8 @@ void CodeGenModule::Release() {
     CodeGenFunction(*this).EmitCfiCheckFail();
     CodeGenFunction(*this).EmitCfiCheckStub();
   }
+  if (LangOpts.Sanitize.has(SanitizerKind::KCFI))
+    FinalizeKCFITypePrefixes();
   emitAtAvailableLinkGuard();
   if (Context.getTargetInfo().getTriple().isWasm() &&
       !Context.getTargetInfo().getTriple().isOSEmscripten()) {
@@ -736,6 +740,9 @@ void CodeGenModule::Release() {
                               "CFI Canonical Jump Tables",
                               CodeGenOpts.SanitizeCfiCanonicalJumpTables);
   }
+
+  if (LangOpts.Sanitize.has(SanitizerKind::KCFI))
+    getModule().addModuleFlag(llvm::Module::Override, "kcfi", 1);
 
   if (CodeGenOpts.CFProtectionReturn &&
       Target.checkCFProtectionReturnSupported(getDiags())) {
@@ -1641,6 +1648,15 @@ llvm::ConstantInt *CodeGenModule::CreateCrossDsoCfiTypeId(llvm::Metadata *MD) {
   return llvm::ConstantInt::get(Int64Ty, llvm::MD5Hash(MDS->getString()));
 }
 
+llvm::ConstantInt *CodeGenModule::CreateKCFITypeId(QualType T) {
+  if (auto *MDS = dyn_cast<llvm::MDString>(CreateMetadataIdentifierImpl(
+          T, MetadataIdMap, "", /*OnlyExternal=*/false)))
+    return llvm::ConstantInt::get(
+        Int32Ty, static_cast<uint32_t>(llvm::xxHash64(MDS->getString())));
+
+  return nullptr;
+}
+
 void CodeGenModule::SetLLVMFunctionAttributes(GlobalDecl GD,
                                               const CGFunctionInfo &Info,
                                               llvm::Function *F, bool IsThunk) {
@@ -2234,6 +2250,60 @@ void CodeGenModule::CreateFunctionTypeMetadataForIcall(const FunctionDecl *FD,
       F->addTypeMetadata(0, llvm::ConstantAsMetadata::get(CrossDsoTypeId));
 }
 
+void CodeGenModule::SetKCFITypePrefix(const FunctionDecl *FD,
+                                      llvm::Function *F) {
+
+  if (isa<CXXMethodDecl>(FD) && !cast<CXXMethodDecl>(FD)->isStatic())
+    return;
+
+  F->setPrefixData(CreateKCFITypeId(FD->getType()));
+  F->addFnAttr("kcfi-target");
+}
+
+static bool allowKCFIIdentifier(StringRef Name) {
+  // KCFI type identifier constants are only necessary for external assembly
+  // functions, which means it's safe to skip unusual names. Subset of
+  // MCAsmInfo::isAcceptableChar() and MCAsmInfoXCOFF::isAcceptableChar().
+  for (const char &C : Name) {
+    if (llvm::isAlnum(C) || C == '_' || C == '.')
+      continue;
+    return false;
+  }
+  return true;
+}
+
+void CodeGenModule::FinalizeKCFITypePrefixes() {
+  llvm::Module &M = getModule();
+  for (auto &F : M.functions()) {
+    bool AddressTaken = F.hasAddressTaken();
+
+    // Remove KCFI prefix data and attribute from non-address-taken local
+    // functions.
+    if (!AddressTaken && F.hasLocalLinkage()) {
+      F.setPrefixData(nullptr);
+      F.removeFnAttr("kcfi-target");
+    }
+
+    if (!AddressTaken || !F.isDeclaration() || !F.hasPrefixData())
+      continue;
+
+    // Generate a weak constant with the expected KCFI type identifier for all
+    // address-taken function declarations.
+    auto *Id = dyn_cast<llvm::ConstantInt>(F.getPrefixData());
+    if (!Id)
+      continue;
+
+    StringRef Name = F.getName();
+    if (!allowKCFIIdentifier(Name))
+      continue;
+
+    std::string Asm = (".weak __kcfi_typeid_" + Name + "\n.set __kcfi_typeid_" +
+                       Name + ", " + Twine(Id->getSExtValue()) + "\n")
+                          .str();
+    M.appendModuleInlineAsm(Asm);
+  }
+}
+
 void CodeGenModule::SetFunctionAttributes(GlobalDecl GD, llvm::Function *F,
                                           bool IsIncompleteFunction,
                                           bool IsThunk) {
@@ -2315,6 +2385,9 @@ void CodeGenModule::SetFunctionAttributes(GlobalDecl GD, llvm::Function *F,
   if (!CodeGenOpts.SanitizeCfiCrossDso ||
       !CodeGenOpts.SanitizeCfiCanonicalJumpTables)
     CreateFunctionTypeMetadataForIcall(FD, F);
+
+  if (LangOpts.Sanitize.has(SanitizerKind::KCFI))
+    SetKCFITypePrefix(FD, F);
 
   if (getLangOpts().OpenMP && FD->hasAttr<OMPDeclareSimdDeclAttr>())
     getOpenMPRuntime().emitDeclareSimdFunction(FD, F);
@@ -6606,7 +6679,8 @@ void CodeGenModule::EmitOMPThreadPrivateDecl(const OMPThreadPrivateDecl *D) {
 
 llvm::Metadata *
 CodeGenModule::CreateMetadataIdentifierImpl(QualType T, MetadataTypeMap &Map,
-                                            StringRef Suffix) {
+                                            StringRef Suffix,
+                                            bool OnlyExternal /*=true*/) {
   if (auto *FnType = T->getAs<FunctionProtoType>())
     T = getContext().getFunctionType(
         FnType->getReturnType(), FnType->getParamTypes(),
@@ -6616,7 +6690,7 @@ CodeGenModule::CreateMetadataIdentifierImpl(QualType T, MetadataTypeMap &Map,
   if (InternalId)
     return InternalId;
 
-  if (isExternallyVisible(T->getLinkage())) {
+  if (isExternallyVisible(T->getLinkage()) || !OnlyExternal) {
     std::string OutName;
     llvm::raw_string_ostream Out(OutName);
     getCXXABI().getMangleContext().mangleTypeName(T, Out);

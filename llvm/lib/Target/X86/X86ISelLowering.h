@@ -77,6 +77,11 @@ namespace llvm {
     /// Same as call except it adds the NoTrack prefix.
     NT_CALL,
 
+    /// Indirect calls with a KCFI check.
+    KCFI_CALL,
+    KCFI_NT_CALL,
+    KCFI_TC_RETURN,
+
     // Pseudo for a OBJC call that gets emitted together with a special
     // marker instruction.
     CALL_RVMARKER,
@@ -1447,6 +1452,8 @@ namespace llvm {
 
     bool supportSwiftError() const override;
 
+    bool supportKCFIBundles() const override { return true; }
+
     bool hasStackProbeSymbol(MachineFunction &MF) const override;
     bool hasInlineStackProbe(MachineFunction &MF) const override;
     StringRef getStackProbeSymbolName(MachineFunction &MF) const override;
@@ -1672,6 +1679,9 @@ namespace llvm {
 
     MachineBasicBlock *EmitLoweredIndirectThunk(MachineInstr &MI,
                                                 MachineBasicBlock *BB) const;
+
+    MachineBasicBlock *EmitLoweredKCFICall(MachineInstr &MI,
+                                           MachineBasicBlock *BB) const;
 
     MachineBasicBlock *emitEHSjLjSetJmp(MachineInstr &MI,
                                         MachineBasicBlock *MBB) const;

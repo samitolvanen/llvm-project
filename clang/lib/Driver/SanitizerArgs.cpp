@@ -37,7 +37,8 @@ static const SanitizerMask NotAllowedWithTrap = SanitizerKind::Vptr;
 static const SanitizerMask NotAllowedWithMinimalRuntime =
     SanitizerKind::Function | SanitizerKind::Vptr;
 static const SanitizerMask RequiresPIE =
-    SanitizerKind::DataFlow | SanitizerKind::HWAddress | SanitizerKind::Scudo;
+    SanitizerKind::DataFlow | SanitizerKind::HWAddress | SanitizerKind::Scudo |
+    SanitizerKind::KCFI;
 static const SanitizerMask NeedsUnwindTables =
     SanitizerKind::Address | SanitizerKind::HWAddress | SanitizerKind::Thread |
     SanitizerKind::Memory | SanitizerKind::DataFlow;
@@ -58,8 +59,9 @@ static const SanitizerMask RecoverableByDefault =
     SanitizerKind::FloatDivideByZero | SanitizerKind::ObjCCast;
 static const SanitizerMask Unrecoverable =
     SanitizerKind::Unreachable | SanitizerKind::Return;
-static const SanitizerMask AlwaysRecoverable =
-    SanitizerKind::KernelAddress | SanitizerKind::KernelHWAddress;
+static const SanitizerMask AlwaysRecoverable = SanitizerKind::KernelAddress |
+                                               SanitizerKind::KernelHWAddress |
+                                               SanitizerKind::KCFI;
 static const SanitizerMask NeedsLTO = SanitizerKind::CFI;
 static const SanitizerMask TrappingSupported =
     (SanitizerKind::Undefined & ~SanitizerKind::Vptr) | SanitizerKind::Integer |
@@ -690,6 +692,25 @@ SanitizerArgs::SanitizerArgs(const ToolChain &TC,
     CfiCanonicalJumpTables =
         Args.hasFlag(options::OPT_fsanitize_cfi_canonical_jump_tables,
                      options::OPT_fno_sanitize_cfi_canonical_jump_tables, true);
+  }
+
+  if (AllAddedKinds & SanitizerKind::KCFI && DiagnoseErrors) {
+    if (AllAddedKinds & SanitizerKind::CFI)
+      D.Diag(diag::err_drv_argument_not_allowed_with)
+          << "-fsanitize=kcfi"
+          << lastArgumentForMask(D, Args, SanitizerKind::CFI);
+
+    if (Arg *A = Args.getLastArg(options::OPT_fpatchable_function_entry_EQ)) {
+      StringRef S = A->getValue();
+      unsigned N, M;
+      // With -fpatchable-function-entry=N,M, where M > 0,
+      // llvm::AsmPrinter::emitFunctionHeader injects nops before before the
+      // KCFI type identifier, which is currently unsupported.
+      if (!S.consumeInteger(10, N) && S.consume_front(",") &&
+          !S.consumeInteger(10, M) && M > 0)
+        D.Diag(diag::err_drv_argument_not_allowed_with)
+            << "-fsanitize=kcfi" << A->getAsString(Args);
+    }
   }
 
   Stats = Args.hasFlag(options::OPT_fsanitize_stats,

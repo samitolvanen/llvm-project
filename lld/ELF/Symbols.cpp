@@ -547,6 +547,13 @@ bool Symbol::shouldReplace(const Defined &other) const {
       return false;
   }
 
+  // The weak __kcfi_typeid_ symbols contain expected KCFI type identifiers
+  // for external symbols. A mismatch in these values means object files have
+  // incompatible declarations for the same function.
+  if (isWeak() && getName().startswith("__kcfi_typeid_") &&
+      cast<Defined>(this)->value != other.value)
+    warn("kcfi: declaration type mismatch: different values for " + getName());
+
   // Incoming STB_GLOBAL overrides STB_WEAK/STB_GNU_UNIQUE. -fgnu-unique changes
   // some vague linkage data in COMDAT from STB_WEAK to STB_GNU_UNIQUE. Treat
   // STB_GNU_UNIQUE like STB_WEAK so that we prefer the first among all

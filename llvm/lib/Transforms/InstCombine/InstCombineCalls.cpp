@@ -3076,6 +3076,27 @@ Instruction *InstCombinerImpl::visitCallBase(CallBase &Call) {
             Call, Builder.CreateBitOrPointerCast(ReturnedArg, CallTy));
     }
 
+  // Drop unnecessary kcfi operand bundles from calls that were converted
+  // into direct calls.
+  auto Bundle = Call.getOperandBundle(LLVMContext::OB_kcfi);
+  if (Bundle && !Call.isIndirectCall()) {
+    DEBUG_WITH_TYPE(DEBUG_TYPE "-kcfi", {
+      if (CalleeF && CalleeF->hasPrefixData()) {
+        auto *FunctionType = cast<ConstantInt>(CalleeF->getPrefixData());
+        auto *ExpectedType = cast<ConstantInt>(Bundle->Inputs[0]);
+
+        if (FunctionType->getZExtValue() != ExpectedType->getZExtValue())
+          dbgs() << Call.getModule()->getName() << ":"
+                 << Call.getDebugLoc().getLine()
+                 << ": warning: kcfi: " << Call.getCaller()->getName()
+                 << ": call to " << CalleeF->getName()
+                 << " using a mismatching function pointer type\n";
+      }
+    });
+
+    return CallBase::removeOperandBundle(&Call, LLVMContext::OB_kcfi);
+  }
+
   if (isAllocationFn(&Call, &TLI) &&
       isAllocRemovable(&cast<CallBase>(Call), &TLI))
     return visitAllocSite(Call);

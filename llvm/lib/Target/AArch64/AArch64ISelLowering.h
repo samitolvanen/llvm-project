@@ -57,6 +57,11 @@ enum NodeType : unsigned {
 
   CALL_BTI, // Function call followed by a BTI instruction.
 
+  // Indirect calls with KCFI checks.
+  KCFI_CALL,
+  KCFI_CALL_BTI,
+  KCFI_TC_RETURN,
+
   // Produces the full sequence of instructions for getting the thread pointer
   // offset of a variable into X0, using the TLSDesc model.
   TLSDESC_CALLSEQ,
@@ -573,6 +578,9 @@ public:
   MachineBasicBlock *EmitLoweredCatchRet(MachineInstr &MI,
                                            MachineBasicBlock *BB) const;
 
+  MachineBasicBlock *EmitLoweredKCFICall(MachineInstr &MI,
+                                         MachineBasicBlock *BB) const;
+
   MachineBasicBlock *
   EmitInstrWithCustomInserter(MachineInstr &MI,
                               MachineBasicBlock *MBB) const override;
@@ -809,6 +817,8 @@ public:
   bool supportSwiftError() const override {
     return true;
   }
+
+  bool supportKCFIBundles() const override { return true; }
 
   /// Enable aggressive FMA fusion on targets that want it.
   bool enableAggressiveFMAFusion(EVT VT) const override;

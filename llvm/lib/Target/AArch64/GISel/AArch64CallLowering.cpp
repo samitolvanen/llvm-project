@@ -892,6 +892,23 @@ static unsigned getCallOpcode(const MachineFunction &CallerF, bool IsIndirect,
   return AArch64::TCRETURNri;
 }
 
+static unsigned getKCFICallOpcode(unsigned Opc) {
+  switch (Opc) {
+  case AArch64::BLR:
+    return AArch64::KCFI_BLR;
+  case AArch64::BLRNoIP:
+    return AArch64::KCFI_BLRNoIP;
+  case AArch64::BLR_BTI:
+    return AArch64::KCFI_BLR_BTI;
+  case AArch64::TCRETURNri:
+    return AArch64::KCFI_TCRETURNri;
+  case AArch64::TCRETURNriBTI:
+    return AArch64::KCFI_TCRETURNriBTI;
+  default:
+    llvm_unreachable("unexpected opcode");
+  }
+}
+
 static const uint32_t *
 getMaskForArgs(SmallVectorImpl<AArch64CallLowering::ArgInfo> &OutArgs,
                AArch64CallLowering::CallLoweringInfo &Info,
@@ -943,7 +960,19 @@ bool AArch64CallLowering::lowerTailCall(
     CallSeqStart = MIRBuilder.buildInstr(AArch64::ADJCALLSTACKDOWN);
 
   unsigned Opc = getCallOpcode(MF, Info.Callee.isReg(), true);
+  unsigned CalleeOpNo = 0;
+
+  if (Info.KCFIType)
+    Opc = getKCFICallOpcode(Opc);
+
   auto MIB = MIRBuilder.buildInstrNoInsert(Opc);
+
+  // Add the KCFI type before the call target.
+  if (Info.KCFIType) {
+    MIB.addImm(Info.KCFIType->getZExtValue());
+    ++CalleeOpNo;
+  }
+
   MIB.add(Info.Callee);
 
   // Byte offset for the tail call. When we are sibcalling, this will always
@@ -1045,7 +1074,7 @@ bool AArch64CallLowering::lowerTailCall(
   // If we have -tailcallopt, we need to adjust the stack. We'll do the call
   // sequence start and end here.
   if (!IsSibCall) {
-    MIB->getOperand(1).setImm(FPDiff);
+    MIB->getOperand(CalleeOpNo + 1).setImm(FPDiff);
     CallSeqStart.addImm(0).addImm(0);
     // End the call sequence *before* emitting the call. Normally, we would
     // tidy the frame up after the call. However, here, we've laid out the
@@ -1059,10 +1088,11 @@ bool AArch64CallLowering::lowerTailCall(
 
   // If Callee is a reg, since it is used by a target specific instruction,
   // it must have a register class matching the constraint of that instruction.
-  if (MIB->getOperand(0).isReg())
+  if (MIB->getOperand(CalleeOpNo).isReg())
     constrainOperandRegClass(MF, *TRI, MRI, *MF.getSubtarget().getInstrInfo(),
                              *MF.getSubtarget().getRegBankInfo(), *MIB,
-                             MIB->getDesc(), MIB->getOperand(0), 0);
+                             MIB->getDesc(), MIB->getOperand(CalleeOpNo),
+                             CalleeOpNo);
 
   MF.getFrameInfo().setHasTailCall();
   Info.LoweredTailCall = true;
@@ -1146,6 +1176,10 @@ bool AArch64CallLowering::lowerCall(MachineIRBuilder &MIRBuilder,
   else
     Opc = getCallOpcode(MF, Info.Callee.isReg(), false);
 
+  bool IsKCFICall = Info.KCFIType && Opc != AArch64::BLR_RVMARKER;
+  if (IsKCFICall)
+    Opc = getKCFICallOpcode(Opc);
+
   auto MIB = MIRBuilder.buildInstrNoInsert(Opc);
   unsigned CalleeOpNo = 0;
 
@@ -1154,6 +1188,10 @@ bool AArch64CallLowering::lowerCall(MachineIRBuilder &MIRBuilder,
     // just before the call target.
     Function *ARCFn = *objcarc::getAttachedARCFunction(Info.CB);
     MIB.addGlobalAddress(ARCFn);
+    ++CalleeOpNo;
+  } else if (IsKCFICall) {
+    // Add the KCFI type before the call target.
+    MIB.addImm(Info.KCFIType->getZExtValue());
     ++CalleeOpNo;
   }
 

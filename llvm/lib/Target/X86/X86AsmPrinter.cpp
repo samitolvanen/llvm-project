@@ -33,6 +33,7 @@
 #include "llvm/MC/MCCodeEmitter.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCExpr.h"
+#include "llvm/MC/MCInstBuilder.h"
 #include "llvm/MC/MCSectionCOFF.h"
 #include "llvm/MC/MCSectionELF.h"
 #include "llvm/MC/MCSectionMachO.h"
@@ -105,6 +106,39 @@ void X86AsmPrinter::emitFunctionBodyEnd() {
     if (auto *XTS =
             static_cast<X86TargetStreamer *>(OutStreamer->getTargetStreamer()))
       XTS->emitFPOEndProc();
+  }
+}
+
+void X86AsmPrinter::emitKCFITypeId(const MachineFunction &MF) {
+  // Emit a function symbol for the type identifier data.
+  MCSymbol *FnSym = OutContext.getOrCreateSymbol("__cfi_" + MF.getName());
+  // Use the same linkage as the parent function
+  emitLinkage(&MF.getFunction(), FnSym);
+  if (MAI->hasDotTypeDotSizeDirective())
+    OutStreamer->emitSymbolAttribute(FnSym, MCSA_ELF_TypeFunction);
+  OutStreamer->emitLabel(FnSym);
+
+  EmitAndCountInstruction(MCInstBuilder(X86::INT3));
+  EmitAndCountInstruction(MCInstBuilder(X86::INT3));
+
+  // Embed the type hash in a mov instruction.
+  auto *Hash = cast<ConstantInt>(MF.getFunction().getPrefixData());
+
+  EmitAndCountInstruction(MCInstBuilder(X86::MOV32ri)
+                              .addReg(X86::EAX)
+                              .addImm(Hash->getZExtValue()));
+
+  EmitAndCountInstruction(MCInstBuilder(X86::INT3));
+  EmitAndCountInstruction(MCInstBuilder(X86::INT3));
+
+  if (MAI->hasDotTypeDotSizeDirective()) {
+    MCSymbol *EndSym = OutContext.createTempSymbol("__cfi_func_end");
+    OutStreamer->emitLabel(EndSym);
+
+    const MCExpr *SizeExp = MCBinaryExpr::createSub(
+        MCSymbolRefExpr::create(EndSym, OutContext),
+        MCSymbolRefExpr::create(FnSym, OutContext), OutContext);
+    OutStreamer->emitELFSize(FnSym, SizeExp);
   }
 }
 

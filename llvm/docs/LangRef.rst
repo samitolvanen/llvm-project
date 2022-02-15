@@ -2612,6 +2612,23 @@ Pointer Authentication operand bundles are characterized by the
 ``"ptrauth"`` operand bundle tag.  They are described in the
 `Pointer Authentication <PointerAuth.html#operand-bundle>`__ document.
 
+.. _ob_kcfi:
+
+KCFI Operand Bundles
+^^^^^^^^^^^^^^^^^^^^
+
+A ``"kcfi"`` operand bundle on an indirect call indicates that the call is
+preceded by a runtime type check, which validates that the call target is
+prefixed with a type identifier that matches the operand bundle attribute. For
+example:
+
+.. code-block:: llvm
+
+      call void %0() ["kcfi"(i32 1234)]
+
+Clang emits KCFI operand bundles and the necessary function prefix data with
+``-fsanitize=kcfi``.
+
 .. _moduleasm:
 
 Module-Level Inline Assembly

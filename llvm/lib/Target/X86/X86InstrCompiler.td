@@ -257,6 +257,15 @@ let isPseudo = 1, SchedRW = [WriteSystem] in {
 }
 
 //===----------------------------------------------------------------------===//
+// Pseudo instructions used by KCFI.
+//===----------------------------------------------------------------------===//
+let
+  Defs = [EFLAGS] in {
+def KCFI_CHECK : PseudoI<
+  (outs), (ins GR64:$ptr, i32imm:$type), []>, Sched<[]>;
+}
+
+//===----------------------------------------------------------------------===//
 // Pseudo instructions used by address sanitizer.
 //===----------------------------------------------------------------------===//
 let
@@ -1327,6 +1336,14 @@ def : Pat<(X86tcret (i64 tglobaladdr:$dst), timm:$off),
 def : Pat<(X86tcret (i64 texternalsym:$dst), timm:$off),
           (TCRETURNdi64 texternalsym:$dst, timm:$off)>,
           Requires<[IsLP64]>;
+
+def : Pat<(X86tcret_kcfi timm:$type, ptr_rc_tailcall:$dst, timm:$off),
+          (KCFI_TCRETURNri64 timm:$type, ptr_rc_tailcall:$dst, timm:$off)>,
+          Requires<[In64BitMode, NotUseIndirectThunkCalls]>;
+
+def : Pat<(X86tcret_kcfi timm:$type, ptr_rc_tailcall:$dst, timm:$off),
+          (KCFI_INDIRECT_THUNK_TCRETURN64 timm:$type, ptr_rc_tailcall:$dst, timm:$off)>,
+          Requires<[In64BitMode, UseIndirectThunkCalls]>;
 
 // Normal calls, with various flavors of addresses.
 def : Pat<(X86call (i32 tglobaladdr:$dst)),

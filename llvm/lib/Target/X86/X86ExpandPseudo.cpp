@@ -63,6 +63,7 @@ public:
 private:
   void ExpandICallBranchFunnel(MachineBasicBlock *MBB,
                                MachineBasicBlock::iterator MBBI);
+  void ExpandKCFICall(MachineBasicBlock &MBB, MachineBasicBlock::iterator MBBI);
   void expandCALL_RVMARKER(MachineBasicBlock &MBB,
                            MachineBasicBlock::iterator MBBI);
   bool ExpandMI(MachineBasicBlock &MBB, MachineBasicBlock::iterator MBBI);
@@ -186,6 +187,69 @@ void X86ExpandPseudo::ExpandICallBranchFunnel(
         .add(JTInst->getOperand(3 + 2 * P.second));
   }
   JTMBB->erase(JTInst);
+}
+
+void X86ExpandPseudo::ExpandKCFICall(MachineBasicBlock &MBB,
+                                     MachineBasicBlock::iterator MBBI) {
+  // Copy the type operand and drop it from the call.
+  MachineOperand Type = MBBI->getOperand(0);
+  MBBI->removeOperand(0);
+  assert(Type.isImm() && "Invalid type operand for a KCFI call");
+
+  static const std::map<unsigned, unsigned> OpcMap = {
+      {X86::KCFI_CALL64r, X86::CALL64r},
+      {X86::KCFI_CALL64r_NT, X86::CALL64r_NT},
+      {X86::KCFI_CALL64pcrel32, X86::CALL64pcrel32},
+      {X86::KCFI_TCRETURNri64, X86::TCRETURNri64},
+      {X86::KCFI_TCRETURNdi64, X86::TCRETURNdi64}};
+
+  unsigned Opc = MBBI->getOpcode();
+  bool IsIndirect =
+      Opc != X86::KCFI_CALL64pcrel32 && Opc != X86::KCFI_TCRETURNdi64;
+  bool IsTailCall =
+      Opc == X86::KCFI_TCRETURNri64 || Opc == X86::KCFI_TCRETURNdi64;
+
+  auto OI = OpcMap.find(Opc);
+  if (OI == OpcMap.end())
+    llvm_unreachable("unexpected opcode");
+
+  // Set the correct opcode for the call.
+  MBBI->setDesc(TII->get(OI->second));
+
+  // Expand tail calls first.
+  if (IsTailCall) {
+    if (!ExpandMI(MBB, MBBI))
+      llvm_unreachable("unexpected failure expanding a tail call");
+
+    unsigned TailCallOpc = MBB.back().getOpcode();
+    assert((TailCallOpc == X86::TAILJMPd64 || TailCallOpc == X86::TAILJMPr64 ||
+            TailCallOpc == X86::TAILJMPr64_REX) &&
+           "Unexpected opcode for a KCFI tail call");
+  }
+
+  MachineInstr &Call = IsTailCall ? MBB.back() : *MBBI;
+  MachineOperand &Target = Call.getOperand(0);
+
+  // Emit the KCFI check immediately before the call.
+  MachineInstr *Check =
+      BuildMI(MBB, Call, Call.getDebugLoc(), TII->get(X86::KCFI_CHECK))
+          .getInstr();
+
+  if (IsIndirect) {
+    assert(Target.isReg() && "Unexpected target operand for an indirect call");
+    Check->addOperand(Target);
+  } else {
+    assert(Target.isSymbol() && "Unexpected target operand for a direct call");
+    // X86TargetLowering::EmitLoweredIndirectThunk always uses r11 for
+    // 64-bit indirect thunk calls.
+    assert(StringRef(Target.getSymbolName()).endswith("_r11") &&
+           "Unexpected register for an indirect thunk KCFI call");
+    Check->addOperand(MachineOperand::CreateReg(X86::R11, false));
+  }
+  Check->addOperand(Type);
+
+  // Bundle the check and the call to prevent further changes.
+  finalizeBundle(MBB, Check->getIterator(), std::next(Call.getIterator()));
 }
 
 void X86ExpandPseudo::expandCALL_RVMARKER(MachineBasicBlock &MBB,
@@ -592,6 +656,13 @@ bool X86ExpandPseudo::ExpandMI(MachineBasicBlock &MBB,
     MI.setDesc(TII->get(X86::TILEZERO));
     return true;
   }
+  case X86::KCFI_CALL64r:
+  case X86::KCFI_CALL64r_NT:
+  case X86::KCFI_CALL64pcrel32:
+  case X86::KCFI_TCRETURNri64:
+  case X86::KCFI_TCRETURNdi64:
+    ExpandKCFICall(MBB, MBBI);
+    return true;
   case X86::CALL64pcrel32_RVMARKER:
   case X86::CALL64r_RVMARKER:
   case X86::CALL64m_RVMARKER:
