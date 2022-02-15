@@ -33,6 +33,7 @@
 #include "llvm/MC/MCCodeEmitter.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCExpr.h"
+#include "llvm/MC/MCInstBuilder.h"
 #include "llvm/MC/MCSectionCOFF.h"
 #include "llvm/MC/MCSectionELF.h"
 #include "llvm/MC/MCSectionMachO.h"
@@ -105,6 +106,48 @@ void X86AsmPrinter::emitFunctionBodyEnd() {
     if (auto *XTS =
             static_cast<X86TargetStreamer *>(OutStreamer->getTargetStreamer()))
       XTS->emitFPOEndProc();
+  }
+}
+
+// emitKCFITypeId - Emit the KCFI type information in a kernel architecture
+// specific format.
+void X86AsmPrinter::emitKCFITypeId(const MachineFunction &MF) {
+  // Emit a function symbol for the type identifier data to avoid unreachable
+  // instruction warnings from binary validation tools.
+  MCSymbol *FnSym = OutContext.getOrCreateSymbol("__cfi_" + MF.getName());
+  // Use the same linkage as the parent function.
+  emitLinkage(&MF.getFunction(), FnSym);
+  if (MAI->hasDotTypeDotSizeDirective())
+    OutStreamer->emitSymbolAttribute(FnSym, MCSA_ELF_TypeFunction);
+  OutStreamer->emitLabel(FnSym);
+
+  // Emit int3 padding to allow runtime patching of the preamble.
+  EmitAndCountInstruction(MCInstBuilder(X86::INT3));
+  EmitAndCountInstruction(MCInstBuilder(X86::INT3));
+
+  // Embed the type hash in the X86::MOV32ri instruction to avoid special
+  // casing object file parsers.
+  auto *Hash = cast<ConstantInt>(MF.getFunction().getPrefixData());
+
+  EmitAndCountInstruction(MCInstBuilder(X86::MOV32ri)
+                              .addReg(X86::EAX)
+                              .addImm(Hash->getZExtValue()));
+
+  // The type hash is encoded in the last four bytes of the X86::MOV32ri
+  // instruction. Emit additional X86::INT3 padding to ensure the hash is
+  // at offset -6 from the function start to avoid potential gadgets in
+  // checks emitted by X86AsmPrinter::LowerKCFI_CHECK.
+  EmitAndCountInstruction(MCInstBuilder(X86::INT3));
+  EmitAndCountInstruction(MCInstBuilder(X86::INT3));
+
+  if (MAI->hasDotTypeDotSizeDirective()) {
+    MCSymbol *EndSym = OutContext.createTempSymbol("cfi_func_end");
+    OutStreamer->emitLabel(EndSym);
+
+    const MCExpr *SizeExp = MCBinaryExpr::createSub(
+        MCSymbolRefExpr::create(EndSym, OutContext),
+        MCSymbolRefExpr::create(FnSym, OutContext), OutContext);
+    OutStreamer->emitELFSize(FnSym, SizeExp);
   }
 }
 

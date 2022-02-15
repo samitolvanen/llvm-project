@@ -111,6 +111,7 @@ public:
 
   typedef std::tuple<unsigned, bool, uint32_t> HwasanMemaccessTuple;
   std::map<HwasanMemaccessTuple, MCSymbol *> HwasanMemaccessSymbols;
+  void LowerKCFI_CHECK(const MachineInstr &MI);
   void LowerHWASAN_CHECK_MEMACCESS(const MachineInstr &MI);
   void emitHwasanMemaccessSymbols(Module &M);
 
@@ -315,6 +316,90 @@ void AArch64AsmPrinter::emitSled(const MachineInstr &MI, SledKind Kind) {
 
   OutStreamer->emitLabel(Target);
   recordSled(CurSled, MI, Kind, 2);
+}
+
+void AArch64AsmPrinter::LowerKCFI_CHECK(const MachineInstr &MI) {
+  unsigned FunctionTypeReg = AArch64::W16;
+  unsigned ExpectedTypeReg = AArch64::W17;
+
+  // Don't clobber X16 or X17 to avoid unnecessary register shuffling
+  // with BTI tail calls, which must use one of these registers.
+  if (MI.getOpcode() == AArch64::KCFI_CHECK_BTI) {
+    FunctionTypeReg = AArch64::W9;
+    ExpectedTypeReg = AArch64::W10;
+  }
+
+  Register AddrReg = MI.getOperand(0).getReg();
+
+  if (AddrReg.id() == AArch64::XZR) {
+    // Checking XZR makes no sense. Instead of emitting a load, zero the
+    // FunctionTypeReg and use it for the ESR AddrIndex below.
+    AddrReg = Register(getXRegFromWReg(FunctionTypeReg));
+    EmitToStreamer(*OutStreamer, MCInstBuilder(AArch64::ORRXrs)
+                                     .addReg(AddrReg)
+                                     .addReg(AArch64::XZR)
+                                     .addReg(AArch64::XZR)
+                                     .addImm(0));
+  } else {
+    EmitToStreamer(*OutStreamer, MCInstBuilder(AArch64::LDURWi)
+                                     .addReg(FunctionTypeReg)
+                                     .addReg(AddrReg)
+                                     .addImm(-4));
+  }
+
+  int64_t Type = MI.getOperand(1).getImm();
+  EmitToStreamer(*OutStreamer, MCInstBuilder(AArch64::MOVKWi)
+                                   .addReg(ExpectedTypeReg)
+                                   .addReg(ExpectedTypeReg)
+                                   .addImm(Type & 0xFFFF)
+                                   .addImm(0));
+  EmitToStreamer(*OutStreamer, MCInstBuilder(AArch64::MOVKWi)
+                                   .addReg(ExpectedTypeReg)
+                                   .addReg(ExpectedTypeReg)
+                                   .addImm((Type >> 16) & 0xFFFF)
+                                   .addImm(16));
+
+  EmitToStreamer(*OutStreamer, MCInstBuilder(AArch64::SUBSWrs)
+                                   .addReg(AArch64::WZR)
+                                   .addReg(FunctionTypeReg)
+                                   .addReg(ExpectedTypeReg)
+                                   .addImm(0));
+
+  MCSymbol *Pass = OutContext.createTempSymbol();
+  EmitToStreamer(*OutStreamer,
+                 MCInstBuilder(AArch64::Bcc)
+                     .addImm(AArch64CC::EQ)
+                     .addExpr(MCSymbolRefExpr::create(Pass, OutContext)));
+
+  assert(AddrReg.isPhysical() &&
+         "Unable to encode the target register for the KCFI trap");
+
+  // The base ESR is 0x8000 and the register information is encoded
+  // in bits 0-9 as follows:
+  // - 0-4: n, where the register Xn contains the target address
+  // - 5-9: m, where the register Wm contains the type hash
+  // Where n, m are in [0, 30].
+  unsigned TypeIndex = ExpectedTypeReg - AArch64::W0;
+  unsigned AddrIndex;
+
+  switch (AddrReg.id()) {
+  default:
+    AddrIndex = AddrReg.id() - AArch64::X0;
+    break;
+  case AArch64::FP:
+    AddrIndex = 29;
+    break;
+  case AArch64::LR:
+    AddrIndex = 30;
+    break;
+  }
+
+  assert(AddrIndex < 31 && TypeIndex < 31);
+
+  unsigned ESR = 0x8000 | ((TypeIndex & 31) << 5) | (AddrIndex & 31);
+  EmitToStreamer(*OutStreamer, MCInstBuilder(AArch64::BRK).addImm(ESR));
+
+  OutStreamer->emitLabel(Pass);
 }
 
 void AArch64AsmPrinter::LowerHWASAN_CHECK_MEMACCESS(const MachineInstr &MI) {
@@ -1442,6 +1527,11 @@ void AArch64AsmPrinter::emitInstruction(const MachineInstr *MI) {
 
   case TargetOpcode::PATCHABLE_TAIL_CALL:
     LowerPATCHABLE_TAIL_CALL(*MI);
+    return;
+
+  case AArch64::KCFI_CHECK:
+  case AArch64::KCFI_CHECK_BTI:
+    LowerKCFI_CHECK(*MI);
     return;
 
   case AArch64::HWASAN_CHECK_MEMACCESS:

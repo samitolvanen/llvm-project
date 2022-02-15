@@ -4176,6 +4176,7 @@ X86TargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
                   CB->hasFnAttr("no_caller_saved_registers"));
   bool HasNoCfCheck = (CB && CB->doesNoCfCheck());
   bool IsIndirectCall = (CB && isa<CallInst>(CB) && CB->isIndirectCall());
+  bool IsCFICall = IsIndirectCall && CLI.CFIType;
   const Module *M = MF.getMMI().getModule();
   Metadata *IsCFProtectionSupported = M->getModuleFlag("cf-protection-branch");
 
@@ -4658,6 +4659,11 @@ X86TargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   if (InFlag.getNode())
     Ops.push_back(InFlag);
 
+  // Set the type as the first argument for CFI calls
+  if (IsCFICall)
+    Ops.insert(Ops.begin() + 1, DAG.getTargetConstant(
+                                    CLI.CFIType->getZExtValue(), dl, MVT::i32));
+
   if (isTailCall) {
     // We used to do:
     //// If this is the first return lowered for this function, add the regs
@@ -4665,15 +4671,18 @@ X86TargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
     // This isn't right, although it's probably harmless on x86; liveouts
     // should be computed from returns not tail calls.  Consider a void
     // function making a tail call to a function returning int.
+    unsigned TCOpc = X86ISD::TC_RETURN;
+
+    if (IsCFICall)
+      TCOpc = X86ISD::CFI_TC_RETURN;
+
     MF.getFrameInfo().setHasTailCall();
-    SDValue Ret = DAG.getNode(X86ISD::TC_RETURN, dl, NodeTys, Ops);
+    SDValue Ret = DAG.getNode(TCOpc, dl, NodeTys, Ops);
     DAG.addCallSiteInfo(Ret.getNode(), std::move(CSInfo));
     return Ret;
   }
 
-  if (HasNoCfCheck && IsCFProtectionSupported && IsIndirectCall) {
-    Chain = DAG.getNode(X86ISD::NT_CALL, dl, NodeTys, Ops);
-  } else if (CLI.CB && objcarc::hasAttachedCallOpBundle(CLI.CB)) {
+  if (CLI.CB && objcarc::hasAttachedCallOpBundle(CLI.CB)) {
     // Calls with a "clang.arc.attachedcall" bundle are special. They should be
     // expanded to the call, directly followed by a special marker sequence and
     // a call to a ObjC library function. Use the CALL_RVMARKER to do that.
@@ -4689,7 +4698,17 @@ X86TargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
     Ops.insert(Ops.begin() + 1, GA);
     Chain = DAG.getNode(X86ISD::CALL_RVMARKER, dl, NodeTys, Ops);
   } else {
-    Chain = DAG.getNode(X86ISD::CALL, dl, NodeTys, Ops);
+    bool NoTrack = IsIndirectCall && HasNoCfCheck && IsCFProtectionSupported;
+    unsigned CallOpc = X86ISD::CALL;
+
+    if (IsCFICall && NoTrack)
+      CallOpc = X86ISD::CFI_NT_CALL;
+    else if (IsCFICall)
+      CallOpc = X86ISD::CFI_CALL;
+    else if (NoTrack)
+      CallOpc = X86ISD::NT_CALL;
+
+    Chain = DAG.getNode(CallOpc, dl, NodeTys, Ops);
   }
 
   InFlag = Chain.getValue(1);
@@ -32998,6 +33017,9 @@ const char *X86TargetLowering::getTargetNodeName(unsigned Opcode) const {
   NODE_NAME_CASE(FLD)
   NODE_NAME_CASE(FST)
   NODE_NAME_CASE(CALL)
+  NODE_NAME_CASE(CFI_CALL)
+  NODE_NAME_CASE(CFI_NT_CALL)
+  NODE_NAME_CASE(CFI_TC_RETURN)
   NODE_NAME_CASE(CALL_RVMARKER)
   NODE_NAME_CASE(BT)
   NODE_NAME_CASE(CMP)
@@ -34910,8 +34932,19 @@ static unsigned getOpcodeForIndirectThunk(unsigned RPOpc) {
     return X86::TCRETURNdi;
   case X86::INDIRECT_THUNK_TCRETURN64:
     return X86::TCRETURNdi64;
+  case X86::CFI_INDIRECT_THUNK_CALL64:
+    return X86::CFI_CALL64pcrel32;
+  case X86::CFI_INDIRECT_THUNK_TCRETURN64:
+    return X86::CFI_TCRETURNdi64;
   }
   llvm_unreachable("not indirect thunk opcode");
+}
+
+static unsigned getVRegOperandIdxForIndirectThunk(unsigned RPOpc) {
+  if (RPOpc == X86::CFI_INDIRECT_THUNK_CALL64 ||
+      RPOpc == X86::CFI_INDIRECT_THUNK_TCRETURN64)
+    return 1; // Skip the type operand.
+  return 0;
 }
 
 static const char *getIndirectThunkSymbol(const X86Subtarget &Subtarget,
@@ -34987,8 +35020,10 @@ X86TargetLowering::EmitLoweredIndirectThunk(MachineInstr &MI,
   // call the retpoline thunk.
   const DebugLoc &DL = MI.getDebugLoc();
   const X86InstrInfo *TII = Subtarget.getInstrInfo();
-  Register CalleeVReg = MI.getOperand(0).getReg();
-  unsigned Opc = getOpcodeForIndirectThunk(MI.getOpcode());
+  unsigned RPOpc = MI.getOpcode();
+  unsigned VRegIdx = getVRegOperandIdxForIndirectThunk(RPOpc);
+  Register CalleeVReg = MI.getOperand(VRegIdx).getReg();
+  unsigned Opc = getOpcodeForIndirectThunk(RPOpc);
 
   // Find an available scratch register to hold the callee. On 64-bit, we can
   // just use R11, but we scan for uses anyway to ensure we don't generate
@@ -35026,11 +35061,28 @@ X86TargetLowering::EmitLoweredIndirectThunk(MachineInstr &MI,
 
   BuildMI(*BB, MI, DL, TII->get(TargetOpcode::COPY), AvailableReg)
       .addReg(CalleeVReg);
-  MI.getOperand(0).ChangeToES(Symbol);
+  MI.getOperand(VRegIdx).ChangeToES(Symbol);
   MI.setDesc(TII->get(Opc));
   MachineInstrBuilder(*BB->getParent(), &MI)
       .addReg(AvailableReg, RegState::Implicit | RegState::Kill);
   return BB;
+}
+
+MachineBasicBlock *
+X86TargetLowering::EmitLoweredCFICall(MachineInstr &MI,
+                                      MachineBasicBlock *BB) const {
+  assert(MI.getOperand(0).isImm() && MI.getOperand(1).isReg() &&
+         "Invalid operand type for a CFI call");
+
+  switch (MI.getOpcode()) {
+  case X86::CFI_INDIRECT_THUNK_CALL64:
+  case X86::CFI_INDIRECT_THUNK_TCRETURN64:
+    // Emit indirect thunks here.
+    return EmitLoweredIndirectThunk(MI, BB);
+  default:
+    // CFI instructions are expanded in X86ExpandPseudo::ExpandCFICall.
+    return BB;
+  }
 }
 
 /// SetJmp implies future control flow change upon calling the corresponding
@@ -35814,6 +35866,12 @@ X86TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
   case X86::INDIRECT_THUNK_TCRETURN32:
   case X86::INDIRECT_THUNK_TCRETURN64:
     return EmitLoweredIndirectThunk(MI, BB);
+  case X86::CFI_CALL64r:
+  case X86::CFI_CALL64r_NT:
+  case X86::CFI_TCRETURNri64:
+  case X86::CFI_INDIRECT_THUNK_CALL64:
+  case X86::CFI_INDIRECT_THUNK_TCRETURN64:
+    return EmitLoweredCFICall(MI, BB);
   case X86::CATCHRET:
     return EmitLoweredCatchRet(MI, BB);
   case X86::SEG_ALLOCA_32:

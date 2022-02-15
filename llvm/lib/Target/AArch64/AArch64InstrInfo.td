@@ -308,6 +308,7 @@ def SDT_AArch64trivec : SDTypeProfile<1, 3, [SDTCisVec<0>, SDTCisSameAs<0,1>,
                                            SDTCisSameAs<0,2>,
                                            SDTCisSameAs<0,3>]>;
 def SDT_AArch64TCRET : SDTypeProfile<0, 2, [SDTCisPtrTy<0>]>;
+def SDT_AArch64TCRET_CFI : SDTypeProfile<0, 3, [SDTCisVT<0, i32>, SDTCisPtrTy<1>]>;
 def SDT_AArch64PREFETCH : SDTypeProfile<0, 2, [SDTCisVT<0, i32>, SDTCisPtrTy<1>]>;
 
 def SDT_AArch64ITOF  : SDTypeProfile<1, 1, [SDTCisFP<0>, SDTCisSameAs<0,1>]>;
@@ -535,6 +536,15 @@ def AArch64call_rvmarker: SDNode<"AArch64ISD::CALL_RVMARKER",
                              [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue,
                               SDNPVariadic]>;
 
+def AArch64call_cfi     : SDNode<"AArch64ISD::CFI_CALL",
+                                SDTypeProfile<0, -1, [SDTCisVT<0, i32>, SDTCisPtrTy<1>]>,
+                                [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue,
+                                 SDNPVariadic]>;
+def AArch64call_cfi_bti : SDNode<"AArch64ISD::CFI_CALL_BTI",
+                                SDTypeProfile<0, -1, [SDTCisVT<0, i32>, SDTCisPtrTy<1>]>,
+                                [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue,
+                                 SDNPVariadic]>;
+
 def AArch64brcond        : SDNode<"AArch64ISD::BRCOND", SDT_AArch64Brcond,
                                 [SDNPHasChain]>;
 def AArch64cbz           : SDNode<"AArch64ISD::CBZ", SDT_AArch64cbz,
@@ -649,6 +659,9 @@ def AArch64orri: SDNode<"AArch64ISD::ORRi", SDT_AArch64vecimm>;
 
 def AArch64tcret: SDNode<"AArch64ISD::TC_RETURN", SDT_AArch64TCRET,
                   [SDNPHasChain,  SDNPOptInGlue, SDNPVariadic]>;
+
+def AArch64tcret_cfi: SDNode<"AArch64ISD::CFI_TC_RETURN", SDT_AArch64TCRET_CFI,
+                      [SDNPHasChain,  SDNPOptInGlue, SDNPVariadic]>;
 
 def AArch64Prefetch        : SDNode<"AArch64ISD::PREFETCH", SDT_AArch64PREFETCH,
                                [SDNPHasChain, SDNPSideEffect]>;
@@ -1423,6 +1436,18 @@ def : Pat<(AArch64mrs imm:$id),
 // TPIDR_EL0.
 def MOVbaseTLS : Pseudo<(outs GPR64:$dst), (ins),
                        [(set GPR64:$dst, AArch64threadpointer)]>, Sched<[WriteSys]>;
+
+let Defs = [ X16, X17, NZCV ] in {
+def KCFI_CHECK : Pseudo<
+  (outs), (ins GPR64noip:$ptr, i32imm:$type), []>, Sched<[]>;
+}
+
+// TCRETURNriBTI requires the target address to be in X16 or X17. Define a
+// variant of KCFI_CHECK that avoids clobbering these registers.
+let Defs = [ X9, X10, NZCV ] in {
+def KCFI_CHECK_BTI : Pseudo<
+  (outs), (ins rtcGPR64:$ptr, i32imm:$type), []>, Sched<[]>;
+}
 
 let Uses = [ X9 ], Defs = [ X16, X17, LR, NZCV ] in {
 def HWASAN_CHECK_MEMACCESS : Pseudo<
@@ -2395,6 +2420,15 @@ let isCall = 1, Defs = [LR], Uses = [SP] in {
                      Sched<[WriteBrReg]>;
   def BLR_BTI : Pseudo<(outs), (ins variable_ops), []>,
                 Sched<[WriteBrReg]>;
+
+  let usesCustomInserter = 1 in {
+    def CFI_BLR : Pseudo<(outs), (ins i32imm:$type, GPR64:$Rn), []>,
+                  Sched<[WriteBrReg]>;
+    def CFI_BLRNoIP : Pseudo<(outs), (ins i32imm:$type, GPR64noip:$Rn), []>,
+                      Sched<[WriteBrReg]>;
+    def CFI_BLR_BTI : Pseudo<(outs), (ins i32imm:$type, GPR64:$Rn), []>,
+                      Sched<[WriteBrReg]>;
+  }
 } // isCall
 
 def : Pat<(AArch64call GPR64:$Rn),
@@ -2410,6 +2444,16 @@ def : Pat<(AArch64call_rvmarker (i64 tglobaladdr:$rvfunc), GPR64:$Rn),
 
 def : Pat<(AArch64call_bti GPR64:$Rn),
           (BLR_BTI GPR64:$Rn)>,
+      Requires<[NoSLSBLRMitigation]>;
+
+def : Pat<(AArch64call_cfi timm:$type, GPR64:$Rn),
+          (CFI_BLR timm:$type, GPR64:$Rn)>,
+      Requires<[NoSLSBLRMitigation]>;
+def : Pat<(AArch64call_cfi timm:$type, GPR64noip:$Rn),
+          (CFI_BLRNoIP timm:$type, GPR64noip:$Rn)>,
+      Requires<[SLSBLRMitigation]>;
+def : Pat<(AArch64call_cfi_bti timm:$type, GPR64:$Rn),
+          (CFI_BLR_BTI timm:$type, GPR64:$Rn)>,
       Requires<[NoSLSBLRMitigation]>;
 
 let isBranch = 1, isTerminator = 1, isBarrier = 1, isIndirectBranch = 1 in {
@@ -8126,6 +8170,13 @@ let isCall = 1, isTerminator = 1, isReturn = 1, isBarrier = 1, Uses = [SP] in {
   // allowed to tail-call a "BTI c" instruction.
   def TCRETURNriBTI : Pseudo<(outs), (ins rtcGPR64:$dst, i32imm:$FPDiff), []>,
                       Sched<[WriteBrReg]>;
+
+  let usesCustomInserter = 1 in {
+    def CFI_TCRETURNri : Pseudo<(outs), (ins i32imm:$type, tcGPR64:$dst, i32imm:$FPDiff), []>,
+                          Sched<[WriteBrReg]>;
+    def CFI_TCRETURNriBTI : Pseudo<(outs), (ins i32imm:$type, rtcGPR64:$dst, i32imm:$FPDiff), []>,
+                             Sched<[WriteBrReg]>;
+  }
 }
 
 def : Pat<(AArch64tcret tcGPR64:$dst, (i32 timm:$FPDiff)),
@@ -8138,6 +8189,13 @@ def : Pat<(AArch64tcret tglobaladdr:$dst, (i32 timm:$FPDiff)),
           (TCRETURNdi texternalsym:$dst, imm:$FPDiff)>;
 def : Pat<(AArch64tcret texternalsym:$dst, (i32 timm:$FPDiff)),
           (TCRETURNdi texternalsym:$dst, imm:$FPDiff)>;
+
+def : Pat<(AArch64tcret_cfi timm:$type, tcGPR64:$dst, (i32 timm:$FPDiff)),
+          (CFI_TCRETURNri timm:$type, tcGPR64:$dst, imm:$FPDiff)>,
+      Requires<[NotUseBTI]>;
+def : Pat<(AArch64tcret_cfi timm:$type, rtcGPR64:$dst, (i32 timm:$FPDiff)),
+          (CFI_TCRETURNriBTI timm:$type, rtcGPR64:$dst, imm:$FPDiff)>,
+      Requires<[UseBTI]>;
 
 def MOVMCSym : Pseudo<(outs GPR64:$dst), (ins i64imm:$sym), []>, Sched<[]>;
 def : Pat<(i64 (AArch64LocalRecover mcsym:$sym)), (MOVMCSym mcsym:$sym)>;

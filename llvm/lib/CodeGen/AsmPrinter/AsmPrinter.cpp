@@ -924,21 +924,26 @@ void AsmPrinter::emitFunctionHeader() {
 
   // Emit the prefix data.
   if (F.hasPrefixData()) {
-    if (MAI->hasSubsectionsViaSymbols()) {
-      // Preserving prefix data on platforms which use subsections-via-symbols
-      // is a bit tricky. Here we introduce a symbol for the prefix data
-      // and use the .alt_entry attribute to mark the function's real entry point
-      // as an alternative entry point to the prefix-data symbol.
-      MCSymbol *PrefixSym = OutContext.createLinkerPrivateTempSymbol();
-      OutStreamer->emitLabel(PrefixSym);
+    bool SubsectionsViaSymbols = MAI->hasSubsectionsViaSymbols();
 
-      emitGlobalConstant(F.getParent()->getDataLayout(), F.getPrefixData());
+    if (F.hasFnAttribute("kcfi-target"))
+      emitKCFITypeId(*MF);
+    else {
+      if (SubsectionsViaSymbols) {
+        // Preserving prefix data on platforms which use subsections-via-symbols
+        // is a bit tricky. Here we introduce a symbol for the prefix data
+        // and use the .alt_entry attribute to mark the function's real entry
+        // point as an alternative entry point to the prefix-data symbol.
+        MCSymbol *PrefixSym = OutContext.createLinkerPrivateTempSymbol();
+        OutStreamer->emitLabel(PrefixSym);
+      }
 
-      // Emit an .alt_entry directive for the actual function symbol.
-      OutStreamer->emitSymbolAttribute(CurrentFnSym, MCSA_AltEntry);
-    } else {
       emitGlobalConstant(F.getParent()->getDataLayout(), F.getPrefixData());
     }
+
+    // Emit an .alt_entry directive for the actual function symbol.
+    if (SubsectionsViaSymbols)
+      OutStreamer->emitSymbolAttribute(CurrentFnSym, MCSA_AltEntry);
   }
 
   // Emit M NOPs for -fpatchable-function-entry=N,M where M>0. We arbitrarily
@@ -1324,6 +1329,28 @@ void AsmPrinter::emitBBAddrMapSection(const MachineFunction &MF) {
     OutStreamer->emitULEB128IntValue(getBBAddrMapMetadata(MBB));
   }
   OutStreamer->popSection();
+}
+
+void AsmPrinter::emitKCFITrapEntry(const MachineFunction &MF,
+                                   const MCSymbol *Symbol) {
+  MCSection *Section =
+      getObjFileLowering().getKCFITrapSection(*MF.getSection());
+  if (!Section)
+    return;
+
+  OutStreamer->pushSection();
+  OutStreamer->SwitchSection(Section);
+
+  MCSymbol *Loc = OutContext.createLinkerPrivateTempSymbol();
+  OutStreamer->emitLabel(Loc);
+  OutStreamer->emitAbsoluteSymbolDiff(Symbol, Loc, 4);
+
+  OutStreamer->popSection();
+}
+
+void AsmPrinter::emitKCFITypeId(const MachineFunction &MF) {
+  const Function &F = MF.getFunction();
+  emitGlobalConstant(F.getParent()->getDataLayout(), F.getPrefixData());
 }
 
 void AsmPrinter::emitPseudoProbe(const MachineInstr &MI) {

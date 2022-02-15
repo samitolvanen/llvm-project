@@ -1336,6 +1336,40 @@ void X86AsmPrinter::LowerFENTRY_CALL(const MachineInstr &MI,
           .addExpr(Op));
 }
 
+void X86AsmPrinter::LowerKCFI_CHECK(const MachineInstr &MI) {
+  const MachineFunction &MF = *MI.getMF();
+
+  // The type hash is encoded in the last four bytes of the X86::CMP32mi
+  // instruction. If we decided to place the hash immediately before
+  // indirect call targets (offset -4), the X86::JCC_1 instruction we'll
+  // emit next would be a potential indirect call target as it's preceded
+  // by a valid type hash.
+  //
+  // To avoid generating useful gadgets, X86AsmPrinter::emitKCFITypeId
+  // emits the type hash prefix at offset -6, which makes X86::TRAP the
+  // only possible target in this instruction sequence.
+  EmitAndCountInstruction(MCInstBuilder(X86::CMP32mi)
+                              .addReg(MI.getOperand(0).getReg())
+                              .addImm(1)
+                              .addReg(X86::NoRegister)
+                              .addImm(-6)
+                              .addReg(X86::NoRegister)
+                              .addImm(MI.getOperand(1).getImm()));
+
+  MCSymbol *Pass = OutContext.createTempSymbol();
+  EmitAndCountInstruction(
+      MCInstBuilder(X86::JCC_1)
+          .addExpr(MCSymbolRefExpr::create(Pass, OutContext))
+          .addImm(X86::COND_E));
+
+  MCSymbol *Trap = OutContext.createTempSymbol();
+  OutStreamer->emitLabel(Trap);
+  EmitAndCountInstruction(MCInstBuilder(X86::TRAP));
+  emitKCFITrapEntry(MF, Trap);
+
+  OutStreamer->emitLabel(Pass);
+}
+
 void X86AsmPrinter::LowerASAN_CHECK_MEMACCESS(const MachineInstr &MI) {
   // FIXME: Make this work on non-ELF.
   if (!TM.getTargetTriple().isOSBinFormatELF()) {
@@ -2617,6 +2651,9 @@ void X86AsmPrinter::emitInstruction(const MachineInstr *MI) {
   case X86::MORESTACK_RET:
     EmitAndCountInstruction(MCInstBuilder(getRetOpcode(*Subtarget)));
     return;
+
+  case X86::KCFI_CHECK:
+    return LowerKCFI_CHECK(*MI);
 
   case X86::ASAN_CHECK_MEMACCESS:
     return LowerASAN_CHECK_MEMACCESS(*MI);

@@ -88,6 +88,8 @@ def SDT_X86CallSeqEnd   : SDCallSeqEnd<[SDTCisVT<0, i32>,
 
 def SDT_X86Call   : SDTypeProfile<0, -1, [SDTCisVT<0, iPTR>]>;
 
+def SDT_X86Call_cfi : SDTypeProfile<0, -1, [SDTCisVT<0, i32>, SDTCisVT<1, iPTR>]>;
+
 def SDT_X86NtBrind : SDTypeProfile<0, -1, [SDTCisVT<0, iPTR>]>;
 
 def SDT_X86VASTART_SAVE_XMM_REGS : SDTypeProfile<0, -1, [SDTCisVT<0, i8>,
@@ -120,6 +122,8 @@ def SDT_X86PROBED_ALLOCA : SDTypeProfile<1, 1, [SDTCisVT<0, iPTR>, SDTCisVT<1, i
 def SDT_X86EHRET : SDTypeProfile<0, 1, [SDTCisInt<0>]>;
 
 def SDT_X86TCRET : SDTypeProfile<0, 2, [SDTCisPtrTy<0>, SDTCisVT<1, i32>]>;
+
+def SDT_X86TCRET_CFI : SDTypeProfile<0, 3, [SDTCisVT<0, i32>, SDTCisPtrTy<1>, SDTCisVT<2, i32>]>;
 
 def SDT_X86MEMBARRIER : SDTypeProfile<0, 0, []>;
 
@@ -207,6 +211,12 @@ def X86call_rvmarker  : SDNode<"X86ISD::CALL_RVMARKER",     SDT_X86Call,
                         [SDNPHasChain, SDNPOutGlue, SDNPOptInGlue,
                          SDNPVariadic]>;
 
+def X86call_cfi  : SDNode<"X86ISD::CFI_CALL", SDT_X86Call_cfi,
+                        [SDNPHasChain, SDNPOutGlue, SDNPOptInGlue,
+                         SDNPVariadic]>;
+def X86NoTrackCall_cfi  : SDNode<"X86ISD::CFI_NT_CALL", SDT_X86Call_cfi,
+                        [SDNPHasChain, SDNPOutGlue, SDNPOptInGlue,
+                         SDNPVariadic]>;
 
 def X86NoTrackCall : SDNode<"X86ISD::NT_CALL", SDT_X86Call,
                             [SDNPHasChain, SDNPOutGlue, SDNPOptInGlue,
@@ -248,6 +258,8 @@ def X86eh_sjlj_setup_dispatch : SDNode<"X86ISD::EH_SJLJ_SETUP_DISPATCH",
                                        [SDNPHasChain, SDNPSideEffect]>;
 
 def X86tcret : SDNode<"X86ISD::TC_RETURN", SDT_X86TCRET,
+                        [SDNPHasChain,  SDNPOptInGlue, SDNPVariadic]>;
+def X86tcret_cfi : SDNode<"X86ISD::CFI_TC_RETURN", SDT_X86TCRET_CFI,
                         [SDNPHasChain,  SDNPOptInGlue, SDNPVariadic]>;
 
 def X86add_flag  : SDNode<"X86ISD::ADD",  SDTBinaryArithWithFlags,

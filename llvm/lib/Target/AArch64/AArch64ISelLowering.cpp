@@ -2247,6 +2247,9 @@ const char *AArch64TargetLowering::getTargetNodeName(unsigned Opcode) const {
     MAKE_CASE(AArch64ISD::MOPS_MEMCOPY)
     MAKE_CASE(AArch64ISD::MOPS_MEMMOVE)
     MAKE_CASE(AArch64ISD::CALL_BTI)
+    MAKE_CASE(AArch64ISD::CFI_CALL)
+    MAKE_CASE(AArch64ISD::CFI_CALL_BTI)
+    MAKE_CASE(AArch64ISD::CFI_TC_RETURN)
   }
 #undef MAKE_CASE
   return nullptr;
@@ -2320,6 +2323,51 @@ MachineBasicBlock *AArch64TargetLowering::EmitLoweredCatchRet(
   return BB;
 }
 
+MachineBasicBlock *
+AArch64TargetLowering::EmitLoweredCFICall(MachineInstr &MI,
+                                          MachineBasicBlock *BB) const {
+  assert(BB->getParent()->getFunction().getParent()->getModuleFlag("kcfi") &&
+         "Unsupported CFI type");
+
+  static const std::map<unsigned, std::tuple<unsigned, unsigned>> OpcMap = {
+      {AArch64::CFI_BLR, {AArch64::KCFI_CHECK, AArch64::BLR}},
+      {AArch64::CFI_BLRNoIP, {AArch64::KCFI_CHECK, AArch64::BLRNoIP}},
+      {AArch64::CFI_BLR_BTI, {AArch64::KCFI_CHECK, AArch64::BLR_BTI}},
+      {AArch64::CFI_TCRETURNri, {AArch64::KCFI_CHECK, AArch64::TCRETURNri}},
+      {AArch64::CFI_TCRETURNriBTI,
+       {AArch64::KCFI_CHECK_BTI, AArch64::TCRETURNriBTI}}};
+
+  auto Opcs = OpcMap.find(MI.getOpcode());
+  if (Opcs == OpcMap.end())
+    llvm_unreachable("unexpected opcode");
+
+  unsigned CheckOpc, CallOpc;
+  std::tie(CheckOpc, CallOpc) = Opcs->second;
+
+  const AArch64InstrInfo *TII = Subtarget->getInstrInfo();
+  MachineOperand Type = MI.getOperand(0);
+
+  // Set the correct call opcode and drop the type operand.
+  MI.setDesc(TII->get(CallOpc));
+  MI.removeOperand(0);
+
+  MachineOperand &Target = MI.getOperand(0);
+  assert(Type.isImm() && Target.isReg() &&
+         "Invalid operand type for a CFI call");
+
+  // Emit a check before the call.
+  MachineInstr *Check =
+      BuildMI(*BB, MI, MI.getDebugLoc(), TII->get(CheckOpc)).getInstr();
+  Check->addOperand(Target);
+  Check->addOperand(Type);
+
+  // Note: There's no need to bundle the instructions as we're fine with
+  // additional machine instructions being emitted between the check and
+  // the call. This means we don't have to worry about expanding BLR_BTI
+  // and TCRETURNri* pseudos.
+  return BB;
+}
+
 MachineBasicBlock *AArch64TargetLowering::EmitInstrWithCustomInserter(
     MachineInstr &MI, MachineBasicBlock *BB) const {
   switch (MI.getOpcode()) {
@@ -2350,6 +2398,13 @@ MachineBasicBlock *AArch64TargetLowering::EmitInstrWithCustomInserter(
 
   case AArch64::CATCHRET:
     return EmitLoweredCatchRet(MI, BB);
+
+  case AArch64::CFI_BLR:
+  case AArch64::CFI_BLRNoIP:
+  case AArch64::CFI_BLR_BTI:
+  case AArch64::CFI_TCRETURNri:
+  case AArch64::CFI_TCRETURNriBTI:
+    return EmitLoweredCFICall(MI, BB);
   }
 }
 
@@ -6171,6 +6226,7 @@ AArch64TargetLowering::LowerCall(CallLoweringInfo &CLI,
 
   AArch64FunctionInfo *FuncInfo = MF.getInfo<AArch64FunctionInfo>();
   bool TailCallOpt = MF.getTarget().Options.GuaranteedTailCallOpt;
+  bool IsCFICall = CLI.CB && CLI.CB->isIndirectCall() && CLI.CFIType;
   bool IsSibCall = false;
   bool GuardWithBTI = false;
 
@@ -6589,11 +6645,20 @@ AArch64TargetLowering::LowerCall(CallLoweringInfo &CLI,
 
   SDVTList NodeTys = DAG.getVTList(MVT::Other, MVT::Glue);
 
+  // Set the type as the first argument for CFI calls
+  if (IsCFICall)
+    Ops.insert(Ops.begin() + 1, DAG.getTargetConstant(
+                                    CLI.CFIType->getZExtValue(), DL, MVT::i32));
+
   // If we're doing a tall call, use a TC_RETURN here rather than an
   // actual call instruction.
   if (IsTailCall) {
+    unsigned TCOpc = AArch64ISD::TC_RETURN;
+    if (IsCFICall)
+      TCOpc = AArch64ISD::CFI_TC_RETURN;
+
     MF.getFrameInfo().setHasTailCall();
-    SDValue Ret = DAG.getNode(AArch64ISD::TC_RETURN, DL, NodeTys, Ops);
+    SDValue Ret = DAG.getNode(TCOpc, DL, NodeTys, Ops);
     DAG.addCallSiteInfo(Ret.getNode(), std::move(CSInfo));
     return Ret;
   }
@@ -6612,7 +6677,11 @@ AArch64TargetLowering::LowerCall(CallLoweringInfo &CLI,
     Function *ARCFn = *objcarc::getAttachedARCFunction(CLI.CB);
     auto GA = DAG.getTargetGlobalAddress(ARCFn, DL, PtrVT);
     Ops.insert(Ops.begin() + 1, GA);
-  } else if (GuardWithBTI)
+  } else if (IsCFICall && GuardWithBTI)
+    CallOpc = AArch64ISD::CFI_CALL_BTI;
+  else if (IsCFICall)
+    CallOpc = AArch64ISD::CFI_CALL;
+  else if (GuardWithBTI)
     CallOpc = AArch64ISD::CALL_BTI;
 
   // Returns a chain and a flag for retval copy to use.
