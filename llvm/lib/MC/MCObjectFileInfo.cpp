@@ -1113,6 +1113,24 @@ MCObjectFileInfo::getBBAddrMapSection(const MCSection &TextSec) const {
                             cast<MCSymbolELF>(TextSec.getBeginSymbol()));
 }
 
+MCSection *MCObjectFileInfo::getKCFISection(const MCSection &TextSec,
+                                            StringRef Name) const {
+  if (Ctx->getObjectFileType() != MCContext::IsELF)
+    return nullptr;
+
+  const MCSectionELF &ElfSec = static_cast<const MCSectionELF &>(TextSec);
+  unsigned Flags = ELF::SHF_LINK_ORDER | ELF::SHF_ALLOC | ELF::SHF_WRITE;
+  StringRef GroupName;
+  if (const MCSymbol *Group = ElfSec.getGroup()) {
+    GroupName = Group->getName();
+    Flags |= ELF::SHF_GROUP;
+  }
+
+  return Ctx->getELFSection(Name, ELF::SHT_PROGBITS, Flags, 0, GroupName,
+                            /*IsComdat=*/true, ElfSec.getUniqueID(),
+                            cast<MCSymbolELF>(TextSec.getBeginSymbol()));
+}
+
 MCSection *
 MCObjectFileInfo::getPseudoProbeSection(const MCSection *TextSec) const {
   if (Ctx->getObjectFileType() == MCContext::IsELF) {

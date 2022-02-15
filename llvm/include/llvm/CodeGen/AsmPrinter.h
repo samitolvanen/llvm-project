@@ -400,6 +400,11 @@ public:
 
   void emitBBAddrMapSection(const MachineFunction &MF);
 
+  void emitKCFIEntry(MCSection *Section, const MCSymbol *Symbol);
+  void emitKCFITypeEntry(const MachineFunction &MF, const MCSymbol *Symbol);
+  void emitKCFITrapEntry(const MachineFunction &MF, const MCSymbol *Symbol);
+  virtual void emitKCFITypeId(const MachineFunction &MF);
+
   void emitPseudoProbe(const MachineInstr &MI);
 
   void emitRemarksSection(remarks::RemarkStreamer &RS);
