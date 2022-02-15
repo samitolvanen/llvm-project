@@ -3063,6 +3063,12 @@ def CFICanonicalJumpTable : InheritableAttr {
   let SimpleHandler = 1;
 }
 
+def KCFIUnchecked : DeclOrTypeAttr, TargetSpecificAttr<TargetArch<["aarch64", "aarch64_be", "x86_64"]>> {
+  let Spellings = [Clang<"kcfi_unchecked">];
+  let Subjects = SubjectList<[FunctionLike]>;
+  let Documentation = [KCFIUncheckedDocs];
+}
+
 // C/C++ Thread safety attributes (e.g. for deadlock, data race checking)
 // Not all of these attributes will be given a [[]] spelling. The attributes
 // which require access to function parameter names cannot use the [[]] spelling

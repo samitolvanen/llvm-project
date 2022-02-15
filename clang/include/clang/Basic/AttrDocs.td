@@ -5471,6 +5471,31 @@ for references or Objective-C object pointers.
 }];
 }
 
+def KCFIUncheckedDocs : Documentation {
+  let Category = DocCatFunction;
+  let Content = [{
+The ``kcfi_unchecked`` attribute causes Clang to not emit :ref:`KCFI<kcfi>`
+checks for indirect calls made through annotated function types.
+
+.. code-block:: c
+
+  int f1(void) { return 0; }
+
+  int (*p1)(void) = f1;
+  p1();  // checked
+
+  int (*p2)(void) __attribute__((kcfi_unchecked)) = f1;
+  p2();  // unchecked
+
+  typedef typeof(f1) * __attribute__((kcfi_unchecked) unchecked_t;
+  ((unchecked_t)f1)();  // unchecked
+
+  unchecked_t p3 = f1;
+  p3();  // unchecked
+
+}];
+}
+
 def ReinitializesDocs : Documentation {
   let Category = DocCatFunction;
   let Content = [{

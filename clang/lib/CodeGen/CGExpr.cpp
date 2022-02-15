@@ -5409,9 +5409,12 @@ RValue CodeGenFunction::EmitCall(QualType CalleeType, const CGCallee &OrigCallee
     }
   }
 
-  if (SanOpts.has(SanitizerKind::KCFI) && IsIndirectCall)
-    EmitKCFICheck(Callee.getFunctionPointer(),
-                  CGM.CreateKCFITypeId(QualType(FnType, 0)));
+  if (SanOpts.has(SanitizerKind::KCFI) && IsIndirectCall) {
+    if ((!TargetDecl || !TargetDecl->hasAttr<KCFIUncheckedAttr>()) &&
+        !getFunctionExtInfo(CalleeType).getKCFIUnchecked())
+      EmitKCFICheck(Callee.getFunctionPointer(),
+                    CGM.CreateKCFITypeId(QualType(FnType, 0)));
+  }
 
   CallArgList Args;
   if (Chain)

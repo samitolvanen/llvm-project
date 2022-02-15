@@ -833,6 +833,7 @@ CGFunctionInfo *CGFunctionInfo::create(unsigned llvmCC,
   FI->ReturnsRetained = info.getProducesResult();
   FI->NoCallerSavedRegs = info.getNoCallerSavedRegs();
   FI->NoCfCheck = info.getNoCfCheck();
+  FI->KCFIUnchecked = info.getKCFIUnchecked();
   FI->Required = required;
   FI->HasRegParm = info.getHasRegParm();
   FI->RegParm = info.getRegParm();

@@ -8608,6 +8608,9 @@ static void ProcessDeclAttribute(Sema &S, Scope *scope, Decl *D,
   case ParsedAttr::AT_AnyX86NoCfCheck:
     handleNoCfCheckAttr(S, D, AL);
     break;
+  case ParsedAttr::AT_KCFIUnchecked:
+    handleSimpleAttribute<KCFIUncheckedAttr>(S, D, AL);
+    break;
   case ParsedAttr::AT_NoThrow:
     if (!AL.isUsedAsTypeAttr())
       handleSimpleAttribute<NoThrowAttr>(S, D, AL);
