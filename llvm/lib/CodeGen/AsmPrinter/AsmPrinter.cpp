@@ -1349,6 +1349,24 @@ void AsmPrinter::emitKCFITypeId(const MachineFunction &MF) {
   emitGlobalConstant(F.getParent()->getDataLayout(), F.getPrefixData());
 }
 
+void AsmPrinter::emitKCFITrapEntry(const MachineFunction &MF,
+                                   const MCSymbol *Symbol) {
+  MCSection *Section =
+      getObjFileLowering().getKCFITrapSection(*MF.getSection());
+
+  if (Section) {
+    OutStreamer->PushSection();
+    OutStreamer->SwitchSection(Section);
+    OutStreamer->emitSymbolValue(Symbol, getPointerSize());
+    OutStreamer->PopSection();
+  }
+}
+
+void AsmPrinter::emitKCFITypeId(const MachineFunction &MF) {
+  const Function &F = MF.getFunction();
+  emitGlobalConstant(F.getParent()->getDataLayout(), F.getPrefixData());
+}
+
 void AsmPrinter::emitPseudoProbe(const MachineInstr &MI) {
   if (PP) {
     auto GUID = MI.getOperand(0).getImm();
