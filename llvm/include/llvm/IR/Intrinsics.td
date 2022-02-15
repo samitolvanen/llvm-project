@@ -1752,6 +1752,9 @@ def int_icall_branch_funnel : DefaultAttrsIntrinsic<[], [llvm_vararg_ty], []>;
 def int_load_relative: DefaultAttrsIntrinsic<[llvm_ptr_ty], [llvm_ptr_ty, llvm_anyint_ty],
                                  [IntrReadMem, IntrArgMemOnly]>;
 
+def int_kcfi_check :
+  Intrinsic<[], [llvm_ptr_ty, llvm_i32_ty], [ImmArg<ArgIndex<1>>]>;
+
 def int_asan_check_memaccess :
   Intrinsic<[],[llvm_ptr_ty, llvm_i32_ty], [ImmArg<ArgIndex<1>>]>;
 

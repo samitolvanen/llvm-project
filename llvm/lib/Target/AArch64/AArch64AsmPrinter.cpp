@@ -111,6 +111,7 @@ public:
 
   typedef std::tuple<unsigned, bool, uint32_t> HwasanMemaccessTuple;
   std::map<HwasanMemaccessTuple, MCSymbol *> HwasanMemaccessSymbols;
+  void LowerKCFI_CHECK(const MachineInstr &MI);
   void LowerHWASAN_CHECK_MEMACCESS(const MachineInstr &MI);
   void emitHwasanMemaccessSymbols(Module &M);
 
@@ -315,6 +316,80 @@ void AArch64AsmPrinter::emitSled(const MachineInstr &MI, SledKind Kind) {
 
   OutStreamer->emitLabel(Target);
   recordSled(CurSled, MI, Kind, 2);
+}
+
+void AArch64AsmPrinter::LowerKCFI_CHECK(const MachineInstr &MI) {
+  Register Addr = MI.getOperand(0).getReg();
+
+  if (Addr.id() == AArch64::XZR) {
+    // Checking XZR makes no sense. Instead of emitting a load, zero X16
+    // and use it for the ESR AddrIndex below.
+    Addr = Register(AArch64::X16);
+    EmitToStreamer(*OutStreamer, MCInstBuilder(AArch64::ORRXrs)
+                                     .addReg(Addr)
+                                     .addReg(AArch64::XZR)
+                                     .addReg(AArch64::XZR)
+                                     .addImm(0));
+  } else {
+    EmitToStreamer(*OutStreamer, MCInstBuilder(AArch64::LDURWi)
+                                     .addReg(AArch64::W16)
+                                     .addReg(Addr)
+                                     .addImm(-4));
+  }
+
+  int64_t Type = MI.getOperand(1).getImm();
+  EmitToStreamer(*OutStreamer, MCInstBuilder(AArch64::MOVKWi)
+                                   .addReg(AArch64::W17)
+                                   .addReg(AArch64::W17)
+                                   .addImm(Type & 0xFFFF)
+                                   .addImm(0));
+  EmitToStreamer(*OutStreamer, MCInstBuilder(AArch64::MOVKWi)
+                                   .addReg(AArch64::W17)
+                                   .addReg(AArch64::W17)
+                                   .addImm((Type >> 16) & 0xFFFF)
+                                   .addImm(16));
+
+  EmitToStreamer(*OutStreamer, MCInstBuilder(AArch64::SUBSWrs)
+                                   .addReg(AArch64::WZR)
+                                   .addReg(AArch64::W16)
+                                   .addReg(AArch64::W17)
+                                   .addImm(0));
+
+  MCSymbol *Pass = OutContext.createTempSymbol();
+  EmitToStreamer(*OutStreamer,
+                 MCInstBuilder(AArch64::Bcc)
+                     .addImm(AArch64CC::EQ)
+                     .addExpr(MCSymbolRefExpr::create(Pass, OutContext)));
+
+  assert(Addr.isPhysical() &&
+         "Unable to encode the target register for the KCFI trap");
+
+  // The base ESR is 0x8000 and the register information is encoded
+  // in bits 0-9 as follows:
+  // - 0-4: n, where the register Xn contains the target address
+  // - 5-9: m, where the register Wm contains the type hash
+  // Where n, m are in [0, 30].
+  unsigned TypeIndex = AArch64::W17 - AArch64::W0;
+  unsigned AddrIndex;
+
+  switch (Addr.id()) {
+  default:
+    AddrIndex = Addr.id() - AArch64::X0;
+    break;
+  case AArch64::FP:
+    AddrIndex = 29;
+    break;
+  case AArch64::LR:
+    AddrIndex = 30;
+    break;
+  }
+
+  assert(AddrIndex < 31 && TypeIndex < 31);
+
+  unsigned ESR = 0x8000 | ((TypeIndex & 31) << 5) | (AddrIndex & 31);
+  EmitToStreamer(*OutStreamer, MCInstBuilder(AArch64::BRK).addImm(ESR));
+
+  OutStreamer->emitLabel(Pass);
 }
 
 void AArch64AsmPrinter::LowerHWASAN_CHECK_MEMACCESS(const MachineInstr &MI) {
@@ -1442,6 +1517,10 @@ void AArch64AsmPrinter::emitInstruction(const MachineInstr *MI) {
 
   case TargetOpcode::PATCHABLE_TAIL_CALL:
     LowerPATCHABLE_TAIL_CALL(*MI);
+    return;
+
+  case AArch64::KCFI_CHECK:
+    LowerKCFI_CHECK(*MI);
     return;
 
   case AArch64::HWASAN_CHECK_MEMACCESS:

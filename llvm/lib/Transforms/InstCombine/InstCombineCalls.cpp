@@ -2675,6 +2675,21 @@ Instruction *InstCombinerImpl::visitCallInst(CallInst &CI) {
     }
     break;
   }
+  case Intrinsic::kcfi_check: {
+    // If the first argument to llvm.kcfi.check() is known function, and the
+    // expected hash in the second argument matches the hash in the function
+    // prefix data, the check will always pass and can be removed.
+    auto *Target = dyn_cast<Function>(CI.getArgOperand(0)->stripPointerCasts());
+
+    if (Target && Target->hasFnAttribute("kcfi") && Target->hasPrefixData()) {
+      auto *Hash = cast<ConstantInt>(Target->getPrefixData());
+      auto *Expected = cast<ConstantInt>(CI.getArgOperand(1));
+
+      if (Hash->getZExtValue() == Expected->getZExtValue())
+        return eraseInstFromFunction(CI);
+    }
+    break;
+  }
   default: {
     // Handle target specific intrinsics
     Optional<Instruction *> V = targetInstCombineIntrinsic(*II);

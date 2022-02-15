@@ -4604,6 +4604,8 @@ public:
   /// passing to a runtime sanitizer handler.
   llvm::Constant *EmitCheckSourceLocation(SourceLocation Loc);
 
+  void EmitKCFICheck(llvm::Value *Ptr, llvm::ConstantInt *Hash);
+
   /// Create a basic block that will either trap or call a handler function in
   /// the UBSan runtime with the provided arguments, and create a conditional
   /// branch to it.

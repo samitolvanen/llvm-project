@@ -3227,6 +3227,11 @@ const SanitizerHandlerInfo SanitizerHandlers[] = {
 #undef SANITIZER_CHECK
 };
 
+void CodeGenFunction::EmitKCFICheck(llvm::Value *Ptr, llvm::ConstantInt *Hash) {
+  Builder.CreateCall(CGM.getIntrinsic(llvm::Intrinsic::kcfi_check),
+                     {Ptr, Hash});
+}
+
 static void emitCheckHandlerCall(CodeGenFunction &CGF,
                                  llvm::FunctionType *FnType,
                                  ArrayRef<llvm::Value *> FnArgs,
@@ -5367,11 +5372,11 @@ RValue CodeGenFunction::EmitCall(QualType CalleeType, const CGCallee &OrigCallee
   }
 
   const auto *FnType = cast<FunctionType>(PointeeType);
+  bool IsIndirectCall = !TargetDecl || !isa<FunctionDecl>(TargetDecl);
 
   // If we are checking indirect calls and this call is indirect, check that the
   // function pointer is a member of the bit set for the function type.
-  if (SanOpts.has(SanitizerKind::CFIICall) &&
-      (!TargetDecl || !isa<FunctionDecl>(TargetDecl))) {
+  if (SanOpts.has(SanitizerKind::CFIICall) && IsIndirectCall) {
     SanitizerScope SanScope(this);
     EmitSanitizerStatReport(llvm::SanStat_CFI_ICall);
 
@@ -5403,6 +5408,10 @@ RValue CodeGenFunction::EmitCall(QualType CalleeType, const CGCallee &OrigCallee
                 {CastedCallee, llvm::UndefValue::get(IntPtrTy)});
     }
   }
+
+  if (SanOpts.has(SanitizerKind::KCFI) && IsIndirectCall)
+    EmitKCFICheck(Callee.getFunctionPointer(),
+                  CGM.CreateKCFITypeId(QualType(FnType, 0)));
 
   CallArgList Args;
   if (Chain)
