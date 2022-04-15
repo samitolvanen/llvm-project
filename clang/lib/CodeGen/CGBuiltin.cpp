@@ -4486,6 +4486,13 @@ RValue CodeGenFunction::EmitBuiltinExpr(const GlobalDecl GD, unsigned BuiltinID,
                     EmitCallee(Call->getCallee()), Call, ReturnValue,
                     EmitScalarExpr(Chain));
   }
+
+  case Builtin::BI__builtin_kcfi_call_unchecked: {
+    const CallExpr *Call = cast<CallExpr>(E->getArg(0));
+    CGCallee Callee = EmitCallee(Call->getCallee());
+    return EmitCall(Call->getCallee()->getType(), Callee, Call, ReturnValue);
+  }
+
   case Builtin::BI_InterlockedExchange8:
   case Builtin::BI_InterlockedExchange16:
   case Builtin::BI_InterlockedExchange:

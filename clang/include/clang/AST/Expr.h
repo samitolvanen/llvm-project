@@ -2962,6 +2962,10 @@ public:
 
   bool hasStoredFPFeatures() const { return CallExprBits.HasFPFeatures; }
 
+  void setKCFIUnchecked(bool V = true) { CallExprBits.IsKCFIUnchecked = V; }
+
+  bool isKCFIUnchecked() const { return CallExprBits.IsKCFIUnchecked; }
+
   Decl *getCalleeDecl() { return getCallee()->getReferencedDeclOfCallee(); }
   const Decl *getCalleeDecl() const {
     return getCallee()->getReferencedDeclOfCallee();

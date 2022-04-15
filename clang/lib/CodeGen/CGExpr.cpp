@@ -5409,7 +5409,8 @@ RValue CodeGenFunction::EmitCall(QualType CalleeType, const CGCallee &OrigCallee
     }
   }
 
-  if (SanOpts.has(SanitizerKind::KCFI) && IsIndirectCall)
+  if (SanOpts.has(SanitizerKind::KCFI) && IsIndirectCall &&
+      !E->isKCFIUnchecked())
     EmitKCFICheck(Callee.getFunctionPointer(),
                   CGM.CreateKCFITypeId(QualType(FnType, 0)));
 

@@ -748,6 +748,39 @@ static bool SemaBuiltinCallWithStaticChain(Sema &S, CallExpr *BuiltinCall) {
   return false;
 }
 
+static bool SemaBuiltinKCFICallUnchecked(Sema &S, CallExpr *BuiltinCall) {
+  if (checkArgCount(S, BuiltinCall, 1))
+    return true;
+
+  auto *Call = dyn_cast<CallExpr>(BuiltinCall->getArg(0));
+
+  if (!Call || !Call->getCallee()
+                    ->IgnoreImpCasts()
+                    ->getType()
+                    ->isFunctionPointerType()) {
+    S.Diag(BuiltinCall->getBeginLoc(), diag::err_kcfi_unchecked_argument)
+        << BuiltinCall->getSourceRange();
+    return true;
+  }
+
+  QualType ReturnTy = Call->getCallReturnType(S.Context);
+  QualType BuiltinTy = S.Context.getFunctionType(
+      ReturnTy, {ReturnTy}, FunctionProtoType::ExtProtoInfo());
+
+  Expr *Builtin = S.ImpCastExprToType(
+                       BuiltinCall->getCallee()->IgnoreImpCasts(),
+                       S.Context.getPointerType(BuiltinTy), CK_BuiltinFnToFnPtr)
+                      .get();
+
+  BuiltinCall->setType(Call->getType());
+  BuiltinCall->setValueKind(Call->getValueKind());
+  BuiltinCall->setObjectKind(Call->getObjectKind());
+  BuiltinCall->setCallee(Builtin);
+  Call->setKCFIUnchecked();
+
+  return false;
+}
+
 namespace {
 
 class ScanfDiagnosticFormatHandler
@@ -2356,6 +2389,10 @@ Sema::CheckBuiltinFunctionCall(FunctionDecl *FDecl, unsigned BuiltinID,
     break;
   case Builtin::BI__builtin_call_with_static_chain:
     if (SemaBuiltinCallWithStaticChain(*this, TheCall))
+      return ExprError();
+    break;
+  case Builtin::BI__builtin_kcfi_call_unchecked:
+    if (SemaBuiltinKCFICallUnchecked(*this, TheCall))
       return ExprError();
     break;
   case Builtin::BI__exception_code:

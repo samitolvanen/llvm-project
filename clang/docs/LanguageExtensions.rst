@@ -2333,6 +2333,38 @@ functions.
 
 Query for this feature with ``__has_builtin(__builtin_call_with_static_chain)``.
 
+``__builtin_kcfi_call_unchecked``
+------------------------------------
+
+``__builtin_kcfi_call_unchecked`` is used to perform an indirect function call
+without :ref:`KCFI<kcfi>` type checking when the program is compiled with
+``-fsanitize=kcfi``.
+
+**Syntax**:
+
+.. code-block:: c++
+
+  T __builtin_kcfi_call_unchecked(T expr)
+
+**Example of Use**:
+
+.. code-block:: c++
+
+  int f1(void) { ... }
+
+  int (*p)(void) = f1;
+  int n;
+
+  n = p(); // checked
+  n = __builtin_kcfi_call_unchecked(p()); // unchecked
+
+**Description**:
+
+This builtin returns ``expr`` after checking that ``expr`` is an indirect call
+expression, without emitting type checks for the call.
+
+Query for this feature with ``__has_builtin(__builtin_kcfi_call_unchecked)``.
+
 ``__builtin_readcyclecounter``
 ------------------------------
 

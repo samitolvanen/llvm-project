@@ -465,8 +465,11 @@ protected:
     /// True if the call expression has some floating-point features.
     unsigned HasFPFeatures : 1;
 
+    /// True if a KCFI check should be omitted for the call expression
+    unsigned IsKCFIUnchecked : 1;
+
     /// Padding used to align OffsetToTrailingObjects to a byte multiple.
-    unsigned : 24 - 3 - NumExprBits;
+    unsigned : 24 - 4 - NumExprBits;
 
     /// The offset in bytes from the this pointer to the start of the
     /// trailing objects belonging to CallExpr. Intentionally byte sized
