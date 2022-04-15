@@ -43,6 +43,35 @@ namespace addressof {
   S *ptmp = __builtin_addressof(S{}); // expected-error {{taking the address of a temporary}}
 }
 
+namespace kcfi_call_unchecked {
+int a(void) { return 0; }
+struct S {
+  int f(void) { return 1; }
+  static int g(void) { return 2; }
+} s;
+static int n;
+int &b(int (*p)(void)) {
+  n += p();
+  return n;
+}
+int (*p1)(void) = a;
+int (*p2)(void) = &S::g;
+int &(*p3)(int (*)(void)) = b;
+
+void test() {
+  __builtin_kcfi_call_unchecked(p1());
+  __builtin_kcfi_call_unchecked(p2());
+  __builtin_kcfi_call_unchecked(p3(p1));
+  __builtin_kcfi_call_unchecked(p1);     // expected-error {{argument to __builtin_kcfi_call_unchecked must be an indirect call expression}}
+  __builtin_kcfi_call_unchecked(p1, p2); // expected-error {{too many arguments to function call, expected 1, have 2}}
+  __builtin_kcfi_call_unchecked(a());    // expected-error {{argument to __builtin_kcfi_call_unchecked must be an indirect call expression}}
+  __builtin_kcfi_call_unchecked(s.f());  // expected-error {{argument to __builtin_kcfi_call_unchecked must be an indirect call expression}}
+  __builtin_kcfi_call_unchecked(S::g()); // expected-error {{argument to __builtin_kcfi_call_unchecked must be an indirect call expression}}
+  static_assert(__is_same(decltype(__builtin_kcfi_call_unchecked(p1())), int), "");
+  static_assert(__is_same(decltype(__builtin_kcfi_call_unchecked(p3(p1))), int &), "");
+}
+} // namespace kcfi_call_unchecked
+
 namespace function_start {
 void a(void) {}
 int n;
