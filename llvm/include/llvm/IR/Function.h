@@ -93,6 +93,8 @@ private:
   enum {
     /// Whether this function is materializable.
     IsMaterializableBit = 0,
+    /// Whether this function is visible to regular objects with LTO,
+    IsVisibleToRegularObjBit,
   };
 
   friend class SymbolTableListTraits<Function>;
@@ -191,6 +193,15 @@ public:
   }
   void setIsMaterializable(bool V) {
     unsigned Mask = 1 << IsMaterializableBit;
+    setGlobalObjectSubClassData((~Mask & getGlobalObjectSubClassData()) |
+                                (V ? Mask : 0u));
+  }
+
+  bool isVisibleToRegularObj() const {
+    return getGlobalObjectSubClassData() & (1 << IsVisibleToRegularObjBit);
+  }
+  void setIsVisibleToRegularObj(bool V) {
+    unsigned Mask = 1 << IsVisibleToRegularObjBit;
     setGlobalObjectSubClassData((~Mask & getGlobalObjectSubClassData()) |
                                 (V ? Mask : 0u));
   }

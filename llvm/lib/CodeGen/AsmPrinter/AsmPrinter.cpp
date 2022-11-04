@@ -1404,7 +1404,31 @@ void AsmPrinter::emitKCFITrapEntry(const MachineFunction &MF,
   OutStreamer->popSection();
 }
 
+bool AsmPrinter::needsKCFITypeId(const MachineFunction &MF) {
+  const Function &F = MF.getFunction();
+  const Module &M = *F.getParent();
+
+  if (!F.hasMetadata(LLVMContext::MD_kcfi_type))
+    return false;
+
+  // With LTO, we can drop type information from globals that are not
+  // address-taken, as long as they are not visible to regular objects.
+  if (!M.getModuleFlag("LTOPostLink") || F.isVisibleToRegularObj())
+    return true;
+
+  // Disable the optimization for ThinLTO as the address-taken property
+  // is not combined.
+  if (auto *MD =
+          mdconst::extract_or_null<ConstantInt>(M.getModuleFlag("ThinLTO")))
+    if (MD->getZExtValue())
+      return true;
+
+  return F.hasAddressTaken();
+}
+
 void AsmPrinter::emitKCFITypeId(const MachineFunction &MF) {
+  if (!needsKCFITypeId(MF))
+    return;
   const Function &F = MF.getFunction();
   if (const MDNode *MD = F.getMetadata(LLVMContext::MD_kcfi_type))
     emitGlobalConstant(F.getParent()->getDataLayout(),

@@ -666,6 +666,7 @@ void LTO::addModuleToGlobalRes(ArrayRef<InputFile::Symbol> Syms,
     GlobalRes.VisibleOutsideSummary |=
         (Res.VisibleToRegularObj || Sym.isUsed() || !InSummary);
 
+    GlobalRes.VisibleToRegularObj |= Res.VisibleToRegularObj;
     GlobalRes.ExportDynamic |= Res.ExportDynamic;
   }
 }
@@ -1317,6 +1318,9 @@ Error LTO::runRegularLTO(AddStreamFn AddStream) {
                                               : GlobalValue::UnnamedAddr::None);
       if (EnableLTOInternalization && R.second.Partition == 0)
         GV->setLinkage(GlobalValue::InternalLinkage);
+
+      if (auto *F = dyn_cast<Function>(GV))
+        F->setIsVisibleToRegularObj(R.second.VisibleToRegularObj);
     }
 
     if (Conf.PostInternalizeModuleHook &&

@@ -362,6 +362,9 @@ private:
     /// summary).
     bool VisibleOutsideSummary = false;
 
+    /// This symbol is visible to regular objects.
+    bool VisibleToRegularObj = false;
+
     /// The symbol was exported dynamically, and therefore could be referenced
     /// by a shared library not visible to the linker.
     bool ExportDynamic = false;
