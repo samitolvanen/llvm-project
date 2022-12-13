@@ -145,6 +145,9 @@ public:
   // exported into .dynsym.
   uint8_t inDynamicList : 1;
 
+  // True if the symbol is in the --lto-export-symbol-list file.
+  uint8_t ltoExportSymbol : 1;
+
   // Used to track if there has been at least one undefined reference to the
   // symbol. For Undefined and SharedSymbol, the binding may change to STB_WEAK
   // if the first undefined reference from a non-shared object is weak.
@@ -169,7 +172,7 @@ public:
   }
 
   bool includeInDynsym() const;
-  uint8_t computeBinding() const;
+  uint8_t computeBinding(bool useExports = false) const;
   bool isGlobal() const { return binding == llvm::ELF::STB_GLOBAL; }
   bool isWeak() const { return binding == llvm::ELF::STB_WEAK; }
 

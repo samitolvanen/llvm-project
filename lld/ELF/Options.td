@@ -589,6 +589,9 @@ def lto_debug_pass_manager: FF<"lto-debug-pass-manager">,
   HelpText<"Debug new pass manager">;
 def lto_emit_asm: FF<"lto-emit-asm">,
   HelpText<"Emit assembly code">;
+defm lto_export_symbol_list : EEq<"lto-export-symbol-list",
+   "Specify a list of symbols that are marked visible to regular objects in a relocatable LTO link">,
+    MetaVarName<"file">;
 def lto_newpm_passes: JJ<"lto-newpm-passes=">,
   HelpText<"Passes to run during LTO">;
 def lto_O: JJ<"lto-O">, MetaVarName<"<opt-level>">,

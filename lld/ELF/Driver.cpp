@@ -436,6 +436,9 @@ static void checkOptions() {
       error("-r and --export-dynamic may not be used together");
   }
 
+  if (config->ltoExportSymbols && !config->relocatable)
+    error("--lto-export-symbol-list may not be used without -r");
+
   if (config->executeOnly) {
     if (config->emachine != EM_AARCH64)
       error("--execute-only is only supported on AArch64 targets");
@@ -1661,6 +1664,11 @@ static void readConfigs(opt::InputArgList &args) {
     } else {
       error(Twine("cannot find version script ") + arg->getValue());
     }
+
+  config->ltoExportSymbols = args.hasArg(OPT_lto_export_symbol_list);
+  for (auto *arg : args.filtered(OPT_lto_export_symbol_list))
+    if (std::optional<MemoryBufferRef> buffer = readFile(arg->getValue()))
+      readLTOExportSymbolList(*buffer);
 }
 
 // Some Config members do not directly correspond to any particular
@@ -2802,6 +2810,11 @@ void LinkerDriver::link(opt::InputArgList &args) {
   if (!config->relocatable) {
     llvm::TimeTraceScope timeScope("Process symbol versions");
     symtab.scanVersionScript();
+  }
+
+  if (config->relocatable) {
+    llvm::TimeTraceScope timeScope("Process LTO export symbols");
+    symtab.scanLTOExportList();
   }
 
   // Skip the normal linked output if some LTO options are specified.

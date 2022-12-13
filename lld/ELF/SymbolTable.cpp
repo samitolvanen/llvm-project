@@ -335,3 +335,16 @@ void SymbolTable::scanVersionScript() {
   // --dynamic-list.
   handleDynamicList();
 }
+
+void SymbolTable::scanLTOExportList() {
+  SmallVector<Symbol *, 0> syms;
+  for (SymbolVersion &ver : config->ltoExportSymbolList) {
+    if (ver.hasWildcard)
+      syms = findAllByVersion(ver, /*includeNonDefault=*/true);
+    else
+      syms = findByVersion(ver);
+
+    for (Symbol *sym : syms)
+      sym->ltoExportSymbol = true;
+  }
+}

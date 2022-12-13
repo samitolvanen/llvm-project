@@ -63,6 +63,7 @@ public:
   void readLinkerScript();
   void readVersionScript();
   void readDynamicList();
+  void readLTOExportSymbolList();
   void readDefsym(StringRef name);
 
 private:
@@ -207,6 +208,26 @@ void ScriptParser::readDynamicList() {
 
   for (SymbolVersion v : globals)
     config->dynamicList.push_back(v);
+}
+
+void ScriptParser::readLTOExportSymbolList() {
+  expect("{");
+  SmallVector<SymbolVersion, 0> locals;
+  SmallVector<SymbolVersion, 0> globals;
+  std::tie(locals, globals) = readSymbols();
+  expect(";");
+
+  if (!atEOF()) {
+    setError("EOF expected, but got " + next());
+    return;
+  }
+  if (!locals.empty()) {
+    setError("\"local:\" scope not supported in --lto-export-symbol-list");
+    return;
+  }
+
+  for (SymbolVersion v : globals)
+    config->ltoExportSymbolList.push_back(v);
 }
 
 void ScriptParser::readVersionScript() {
@@ -1796,6 +1817,12 @@ void elf::readVersionScript(MemoryBufferRef mb) {
 void elf::readDynamicList(MemoryBufferRef mb) {
   llvm::TimeTraceScope timeScope("Read dynamic list", mb.getBufferIdentifier());
   ScriptParser(mb).readDynamicList();
+}
+
+void elf::readLTOExportSymbolList(MemoryBufferRef mb) {
+  llvm::TimeTraceScope timeScope("Read LTO export symbol list",
+                                 mb.getBufferIdentifier());
+  ScriptParser(mb).readLTOExportSymbolList();
 }
 
 void elf::readDefsym(StringRef name, MemoryBufferRef mb) {

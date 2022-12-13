@@ -254,21 +254,29 @@ void BitcodeCompiler::add(BitcodeFile &f) {
     r.Prevailing = !objSym.isUndefined() && sym->file == &f;
 
     // We ask LTO to preserve following global symbols:
-    // 1) All symbols when doing relocatable link, so that them can be used
-    //    for doing final link.
+    // 1) All symbols when doing relocatable link, so that they can be used
+    //    for doing final link, unless
+    //    a) the symbol is in --lto-export-symbol-list, and
+    //    b) the symbol is executable.
     // 2) Symbols that are used in regular objects.
     // 3) C named sections if we have corresponding __start_/__stop_ symbol.
     // 4) Symbols that are defined in bitcode files and used for dynamic
     //    linking.
     // 5) Symbols that will be referenced after linker wrapping is performed.
-    r.VisibleToRegularObj = config->relocatable || sym->isUsedInRegularObj ||
-                            sym->referencedAfterWrap ||
-                            (r.Prevailing && sym->includeInDynsym()) ||
-                            usedStartStop.count(objSym.getSectionName());
+    bool useExports = config->ltoExportSymbols && !sym->isUsedInRegularObj &&
+                      objSym.isExecutable();
+    uint8_t binding = sym->computeBinding(useExports);
+    r.VisibleToRegularObj =
+        (config->relocatable && !useExports) || sym->isUsedInRegularObj ||
+        sym->referencedAfterWrap ||
+        (r.Prevailing &&
+         (useExports ? binding != STB_LOCAL : sym->includeInDynsym())) ||
+        usedStartStop.count(objSym.getSectionName());
+
     // Identify symbols exported dynamically, and that therefore could be
     // referenced by a shared library not visible to the linker.
     r.ExportDynamic =
-        sym->computeBinding() != STB_LOCAL &&
+        binding != STB_LOCAL &&
         (config->exportDynamic || sym->exportDynamic || sym->inDynamicList);
     const auto *dr = dyn_cast<Defined>(sym);
     r.FinalDefinitionInLinkageUnit =

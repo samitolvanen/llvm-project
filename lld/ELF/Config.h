@@ -199,6 +199,7 @@ struct Config {
   llvm::SmallVector<llvm::StringRef, 0> thinLTOModulesToCompile;
   llvm::SmallVector<llvm::StringRef, 0> undefined;
   llvm::SmallVector<SymbolVersion, 0> dynamicList;
+  llvm::SmallVector<SymbolVersion, 0> ltoExportSymbolList;
   llvm::SmallVector<uint8_t, 0> buildIdVector;
   llvm::SmallVector<llvm::StringRef, 0> mllvmOpts;
   llvm::MapVector<std::pair<const InputSectionBase *, const InputSectionBase *>,
@@ -246,6 +247,7 @@ struct Config {
   bool ltoPGOWarnMismatch;
   bool ltoDebugPassManager;
   bool ltoEmitAsm;
+  bool ltoExportSymbols;
   bool ltoUniqueBasicBlockSectionNames;
   bool ltoWholeProgramVisibility;
   bool mergeArmExidx;

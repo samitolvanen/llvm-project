@@ -53,6 +53,8 @@ public:
 
   void scanVersionScript();
 
+  void scanLTOExportList();
+
   Symbol *find(StringRef name);
 
   void handleDynamicList();

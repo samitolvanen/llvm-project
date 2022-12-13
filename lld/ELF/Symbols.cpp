@@ -268,7 +268,10 @@ void Symbol::extract() const {
   }
 }
 
-uint8_t Symbol::computeBinding() const {
+uint8_t Symbol::computeBinding(bool useExports /*=false*/) const {
+  if (useExports && config->ltoExportSymbols && binding == STB_GLOBAL &&
+      !ltoExportSymbol)
+    return STB_LOCAL;
   auto v = visibility();
   if ((v != STV_DEFAULT && v != STV_PROTECTED) || versionId == VER_NDX_LOCAL)
     return STB_LOCAL;

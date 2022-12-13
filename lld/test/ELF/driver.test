@@ -71,6 +71,11 @@
 # RUN: not ld.lld -r -export-dynamic %t -o /dev/null 2>&1 | FileCheck -check-prefix=ERR12 %s
 # ERR12: -r and --export-dynamic may not be used together
 
+## Attempt to use --lto-export-symbol-list without -r
+# RUN: echo "{ };" > %t.list
+# RUN: not ld.lld --lto-export-symbol-list %t.list %t -o /dev/null 2>&1 | FileCheck -check-prefix=ERR13 %s
+# ERR13: --lto-export-symbol-list may not be used without -r
+
 .globl _start
 _start:
   nop
