@@ -16,6 +16,23 @@ define void @f1(ptr noundef %x) {
   ret void
 }
 
+declare dso_local i32 @eh(...)
+
+; CHECK-LABEL: define void @f2(
+define void @f2(ptr noundef %x) personality ptr @eh {
+  ; CHECK:      call void @llvm.debugtrap()
+  ; CHECK-NEXT: br label %[[#INVOKE:]]
+  ; CHECK:      [[#INVOKE]]:
+  ; CHECK-NEXT: invoke void %x()
+  ; CHECK-NOT:  [ "kcfi"(i32 12345678) ]
+  invoke void %x() [ "kcfi"(i32 12345678) ] to label %cont unwind label %lpad
+lpad:
+  %res = landingpad { ptr, i32 } cleanup
+  br label %cont
+cont:
+  ret void
+}
+
 !llvm.module.flags = !{!0}
 !0 = !{i32 4, !"kcfi", i32 1}
 ; CHECK: ![[#WEIGHTS]] = !{!"branch_weights", i32 1, i32 1048575}

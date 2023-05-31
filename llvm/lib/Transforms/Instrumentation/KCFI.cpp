@@ -51,11 +51,11 @@ PreservedAnalyses KCFIPass::run(Function &F, FunctionAnalysisManager &AM) {
     return PreservedAnalyses::all();
 
   // Find call instructions with KCFI operand bundles.
-  SmallVector<CallInst *> KCFICalls;
+  SmallVector<CallBase *> KCFICalls;
   for (Instruction &I : instructions(F)) {
-    if (auto *CI = dyn_cast<CallInst>(&I))
-      if (CI->getOperandBundle(LLVMContext::OB_kcfi))
-        KCFICalls.push_back(CI);
+    if (auto *CB = dyn_cast<CallBase>(&I))
+      if (CB->getOperandBundle(LLVMContext::OB_kcfi))
+        KCFICalls.push_back(CB);
   }
 
   if (KCFICalls.empty())
@@ -74,19 +74,19 @@ PreservedAnalyses KCFIPass::run(Function &F, FunctionAnalysisManager &AM) {
   MDNode *VeryUnlikelyWeights =
       MDBuilder(Ctx).createBranchWeights(1, (1U << 20) - 1);
 
-  for (CallInst *CI : KCFICalls) {
+  for (CallBase *CB : KCFICalls) {
     // Get the expected hash value.
     const uint32_t ExpectedHash =
-        cast<ConstantInt>(CI->getOperandBundle(LLVMContext::OB_kcfi)->Inputs[0])
+        cast<ConstantInt>(CB->getOperandBundle(LLVMContext::OB_kcfi)->Inputs[0])
             ->getZExtValue();
 
     // Drop the KCFI operand bundle.
     CallBase *Call =
-        CallBase::removeOperandBundle(CI, LLVMContext::OB_kcfi, CI);
-    assert(Call != CI);
-    Call->copyMetadata(*CI);
-    CI->replaceAllUsesWith(Call);
-    CI->eraseFromParent();
+        CallBase::removeOperandBundle(CB, LLVMContext::OB_kcfi, CB);
+    assert(Call != CB);
+    Call->copyMetadata(*CB);
+    CB->replaceAllUsesWith(Call);
+    CB->eraseFromParent();
 
     if (!Call->isIndirectCall())
       continue;
